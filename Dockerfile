@@ -1,5 +1,5 @@
 # Internal image for ad-domain. No public ingress. Provider credentials do not belong here.
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+FROM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS builder
 RUN apk add --no-cache git
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -8,13 +8,13 @@ COPY tsconfig.json tsconfig.check.json ./
 COPY src ./src
 RUN npm run build
 
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS prod-deps
+FROM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS prod-deps
 RUN apk add --no-cache git
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+FROM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
 RUN apk add --no-cache su-exec \
   && addgroup -g 1001 -S proba && adduser -u 1001 -S proba -G proba
 WORKDIR /app
