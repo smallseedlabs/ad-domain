@@ -24,6 +24,9 @@ export interface ProviderCommand {
   platform: AdPlatform;
   probaCampaignId: string;
   landingPageUrl?: string;
+  providerAccountId?: string;
+  providerCampaignId?: string;
+  providerAdGroupId?: string;
 }
 
 export interface ProviderAdapter {

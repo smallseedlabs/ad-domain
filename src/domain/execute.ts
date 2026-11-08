@@ -85,6 +85,7 @@ async function requireAccount(tx: AdsTx, workspaceId: string, args: ParsedAdsArg
 interface PreparedCommand {
   campaign: CampaignRecord;
   args: ParsedAdsArgs;
+  providerAccountId?: string;
 }
 
 const inProcessClaims = new Map<string, Promise<AdsDomainResult>>();
@@ -202,7 +203,7 @@ async function executeOnce(
     let campaign: CampaignRecord;
     try {
       if (args.verb === 'ads.create_campaign') {
-        await requireAccount(tx, request.workspaceId, args, args.platform!);
+        const account = await requireAccount(tx, request.workspaceId, args, args.platform!);
         campaign = {
           workspaceId: request.workspaceId,
           probaCampaignId: randomUUID(),
@@ -216,6 +217,7 @@ async function executeOnce(
           status: 'draft',
           version: 1,
           lockCommandKey: idempotencyKey,
+          providerAccountId: account.accountId,
         };
         await tx.insertCampaign(campaign);
       } else {
@@ -253,7 +255,10 @@ async function executeOnce(
       })
     );
     await tx.markInFlight(request.workspaceId, idempotencyKey, campaign.probaCampaignId);
-    return { kind: 'dispatch' as const, prepared: { campaign, args } satisfies PreparedCommand };
+    return {
+      kind: 'dispatch' as const,
+      prepared: { campaign, args, providerAccountId: campaign.providerAccountId } satisfies PreparedCommand,
+    };
   });
 
   if (prepared.kind === 'replay' || prepared.kind === 'done') return prepared.result;
@@ -267,6 +272,9 @@ async function executeOnce(
     platform: campaign.platform,
     probaCampaignId: campaign.probaCampaignId,
     landingPageUrl: parsed.landingPageUrl ?? campaign.landingPageUrl,
+    providerAccountId: prepared.prepared.providerAccountId ?? campaign.providerAccountId,
+    providerCampaignId: campaign.providerCampaignId,
+    providerAdGroupId: campaign.providerAdGroupId,
   });
 
   return deps.store.withTransaction(async (tx) => {

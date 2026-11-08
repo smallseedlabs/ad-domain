@@ -12,8 +12,26 @@ describe('config [unit]', () => {
     expect(config.audit.stream).toBe('proba.audit.events');
   });
 
-  it('refuses public ingress and provider secrets in this process', () => {
+  it('refuses public ingress, non-Reddit provider secrets, and Reddit client-secret refresh', () => {
     expect(() => loadConfig({ NODE_ENV: 'test', INGRESS_PUBLIC: 'true' })).toThrow(ConfigError);
     expect(() => loadConfig({ NODE_ENV: 'test', REDDIT_CLIENT_SECRET: 'x' })).toThrow(ConfigError);
+    expect(() => loadConfig({ NODE_ENV: 'test', META_ACCESS_TOKEN: 'x' })).toThrow(ConfigError);
+  });
+
+  it('does not register Reddit unless explicitly enabled with account and token', () => {
+    const off = loadConfig({ NODE_ENV: 'test', AUDIT_PUBLISHER: 'log' });
+    expect(off.reddit.enabled).toBe(false);
+    expect(() =>
+      loadConfig({ NODE_ENV: 'test', AUDIT_PUBLISHER: 'log', REDDIT_ADS_ENABLED: 'true', REDDIT_AD_ACCOUNT_ID: 'a2_test' })
+    ).toThrow(ConfigError);
+    const on = loadConfig({
+      NODE_ENV: 'test',
+      AUDIT_PUBLISHER: 'log',
+      REDDIT_ADS_ENABLED: 'true',
+      REDDIT_AD_ACCOUNT_ID: 'a2_test',
+      REDDIT_ACCESS_TOKEN: 'test-token-not-real',
+    });
+    expect(on.reddit.enabled).toBe(true);
+    if (on.reddit.enabled) expect(on.reddit.adAccountId).toBe('a2_test');
   });
 });

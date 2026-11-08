@@ -36,8 +36,8 @@ Audit: domain writes and `ads.audit_outbox` share a transaction. Relay `XADD`s p
 
 ## 2. Not built / not claimed
 
-- Live Reddit/Microsoft/Google/Meta adapters (Task 5+, queued). Credentials refused in this process.
-- Hub → gateway → Ads end-to-end. Gateway PR3 is merged; Hub/web destination URL capture and research→create are still later. This repo does not retry Hub/web/protocol PRs.
+- Microsoft/Google/Meta adapters. Reddit v3 is in-process and **off** unless `REDDIT_ADS_ENABLED=true` with account + token file.
+- Hub → gateway → Ads end-to-end. Gateway PR3 is merged; Hub/web destination URL capture and research→create are still later. This repo does not retry Hub/web/protocol PRs. Gateway “accepted artifact” guard is an **upstream** requirement, not built here.
 - Operator/portal destination URL field, protocol `create_goal` URL, research→sourced findings→user validation→create. Those are absent upstream. **Minimal future hook:** pass the user-entered URL as gateway tool arg `landingPageUrl` (already the Ads request field). Do not invent a research schema here.
 - `workspaceId` on gateway-minted Ads tokens (compatible additive claim).
 - Workload/workspace spend meshes, `$2` model caps, live automation delegation.
@@ -89,23 +89,74 @@ Options that were **rejected** here (incompatible or incomplete):
 
 Until that tag exists, keeping Ads on Zod 3 aligned with protocol v0.4.0 is the compatibility-safe option. Body-size limits are **not** a substitute for the patched Zod line.
 
-### 3.2 Task 5 (queued — Reddit module)
-
-Not this PR. First live adapter is Reddit (gateway `FIRST_AD_PLATFORMS` starts with `reddit`). Requirements that the foundation already encodes:
-
-- Implement `ProviderAdapter` for Reddit; default remains `UnconfiguredProvider` until that module is configured.
-- Never report mutation `ok: true` without a real provider result. Uncertain outcomes stay `ambiguous` and are not retried as success.
-- Create/resume/spend-increase still require verified billing; pause may skip ad-balance only. Billing `unknown` is not a verified zero.
-- Credentials do not belong in this process until the adapter task; env keys for live networks are already refused at config load.
-- `landingPageUrl` stays a request argument (no hardcoded/default destination).
-- Tests: unit fakes vs isolated PG/Redis; **no live Reddit spend** in CI.
-
 ## 4. Test vs real
 
 | Kind | How | Spends ads? |
 | --- | --- | --- |
 | Unit / fake-store / fake-provider | `npm test` | no |
+| Reddit adapter (injected HTTP) | `ScriptedHttpTransport` | no live Reddit |
 | Real Postgres schema `ads` | `ADS_TEST_DATABASE_URL` + `npm run test:integration` | no |
 | Real Redis stream XADD | `ADS_TEST_REDIS_URL` | no |
 
 Compose ports `127.0.0.1:55436` (Postgres) and `127.0.0.1:56381` (Redis) avoid sibling Proba maps. Do not point `DATABASE_URL` at Hub/Context/Memory databases without the `ads` schema isolation (migrations create `ads.*` only; they do not DROP sibling tables).
+
+## 5. Reddit Ads adapter (Task 5)
+
+In-process module, not a separate deployment. Default remains `UnconfiguredProvider`. The Reddit adapter is constructed only when `REDDIT_ADS_ENABLED=true` **and** `REDDIT_AD_ACCOUNT_ID` plus `REDDIT_ACCESS_TOKEN_FILE` (production) or `REDDIT_ACCESS_TOKEN` (non-production) are set. Incomplete enablement refuses process start. Client-secret / refresh is **not** implemented (`REDDIT_CLIENT_SECRET` is refused). Token expiry surfaces as 401 fail-closed.
+
+Public docs used (read-only, 2026-11-08): [Reddit Advertising API v3](https://ads-api.reddit.com/docs/v3/api/reddit-advertising-api), [Create Campaign](https://ads-api.reddit.com/docs/v3/api/create-campaign), [Create Ad Group](https://ads-api.reddit.com/docs/v3/api/create-ad-group), [Update Campaign](https://ads-api.reddit.com/docs/v3/api/update-campaign), [List Funding Instruments](https://ads-api.reddit.com/docs/v3/api/list-funding-instruments). v2 is sunset except CAPI.
+
+### Operational
+
+```
+REDDIT_ADS_ENABLED=true
+REDDIT_AD_ACCOUNT_ID=a2_…
+REDDIT_ACCESS_TOKEN_FILE=/run/secrets/reddit_access_token
+# optional:
+# REDDIT_ADS_API_BASE_URL=https://ads-api.reddit.com/api/v3
+# REDDIT_HTTP_TIMEOUT_MS=10000
+# REDDIT_CONVERSION_PIXEL_ID=t2_…
+# REDDIT_USER_AGENT=web:proba-ads:0.1.0 (by /u/your_reddit_username)
+```
+
+Workspace rows still require a ready `ads.provider_accounts` mapping for that Reddit account. Commands that name a different `providerAccountId` are refused. Pause/resume/update GET the remote campaign and refuse if `ad_account_id` is not the configured account. Cross-provider transfers are not implemented.
+
+`landingPageUrl` is the request argument (fixture `https://example.test/offer` in tests). It is stored on the Proba campaign. Reddit `click_url` is **ad-level**; this slice does not create ads, posts, or creatives, so the URL is **not** pushed to Reddit as a destination. No SmallSeed/marketing URL is defaulted.
+
+Create/resume/spend-increase still require a **verified eligible** billing claim. Pause may skip ad-balance only. `/health` and `/ready` still do not query Reddit billing.
+
+### Billing (fail closed)
+
+`GET /ad_accounts/{id}/funding_instruments?mode=SELECTABLE` (`ads-funding-instruments`). This process does **not** follow `pagination.next_url`.
+
+| HTTP / parse | Claim |
+| --- | --- |
+| 200 + at least one `is_servable=true` on the first page | `verified` / `billing_eligibility` / `eligible: true`. **Not** `exact_balance`. `billable_amount` is outstanding debt, not cash on hand. `credit_limit` is not treated as a spendable balance. |
+| 200 + none servable and no `next_url` | `verified` / `eligible: false` |
+| 200 + none servable and `pagination.next_url` present | `unknown` — incomplete page, **not** a verified zero |
+| 401/403 | `unavailable` |
+| 404, 429, 5xx, timeout, non-JSON | `unknown` — **not** a verified zero. Spend-increase refused. |
+
+### Mutations (v3)
+
+- Create: `POST /ad_accounts/{id}/campaigns` with `objective=CLICKS`, `configured_status=ACTIVE`, `funding_instrument_id` from a servable instrument. Then `POST .../ad_groups` with `type=MANUAL`, `goal_type=DAILY_SPEND`, `goal_value` in **microcurrency** (`major * 1_000_000`), `bid_type=CPC`, `bid_strategy=BIDLESS`. Campaign-budget-optimization is **not** used (CBO also requires `conversion_pixel_id` and start_time).
+- Pause/resume: `PATCH /campaigns/{id}` `configured_status` `PAUSED`/`ACTIVE` after a GET ownership check. Pause does **not** query funding instruments.
+- Daily budget update: `PATCH /ad_groups/{id}` `goal_value` micros. Name-only updates skip an empty campaign PATCH. Refused if no ad-group mapping.
+- 429: `provider_rate_limited`, **no retry**.
+- Timeout / 5xx on POST/PATCH: `outcome_ambiguous`, persisted, not retried as success.
+- Certain 4xx on ad-group create after a campaign id was returned: campaign mapping is persisted (so a retry does not create a second campaign); `providerAdGroupId` stays unset and remote daily budget is **not** claimed.
+
+### API assumptions and unknowns
+
+- Ad account ids look like `a2_…` / `t2_…` per docs. Not re-validated beyond “configured string matches command mapping”.
+- Minimal create body omits targeting/schedule/special ad categories. Reddit may 400; that is refused, not spoofed as success.
+- Funding-instrument 404 is treated as **unknown billing**, because we cannot prove the account has no funds.
+- As of 2026-07-13, official Create Ad Group docs require `conversion_pixel_id` for **all** ad groups. This process sends it only when `REDDIT_CONVERSION_PIXEL_ID` is set. Without it, live ad-group create is expected to 400; that is documented, not faked as a live ad.
+- Create Ad Group’s example `goal_value: 75` disagrees with the field text (“microcurrency for monetary goal types”). This adapter sends micros (`12` → `12000000`). Live 400 on that field is refused, not retried as success.
+- Default User-Agent is `web:proba-ads:0.1.0 (internal Ads domain; no public user)`. Reddit asks for `platform:app:version (by /u/username)`. Operators should set `REDDIT_USER_AGENT` with a real Reddit username; this process will not invent one.
+- No OAuth refresh; operators rotate `REDDIT_ACCESS_TOKEN_FILE`. Token expiry is 401 fail-closed.
+- Microsoft/Google/Meta remain unconfigured.
+- Protocol Zod 4 is a **separate** workstream; this PR does not override zod.
+- Gateway “accepted artifact” guard and Hub/web destination URL capture remain **upstream**. This slice does not claim a built operator UI.
+
+Tests inject `ScriptedHttpTransport`. CI and local tests must not call `ads-api.reddit.com`.

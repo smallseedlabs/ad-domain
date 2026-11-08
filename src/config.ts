@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { ConfigError } from './errors.js';
 import { DEFAULT_CALLER_ISSUERS, DEFAULT_CALLER_SUBJECTS } from './auth/constants.js';
+import { REDDIT_ADS_API_BASE, REDDIT_USER_AGENT } from './providers/reddit/config.js';
 import type { AdsServiceConfig, AuditPublisherKind, RuntimeEnv } from './types/config.js';
 
 function envBool(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
@@ -60,9 +61,40 @@ function schemaName(raw: string | undefined): string {
   return value;
 }
 
+function loadRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServiceConfig['reddit'] {
+  if (env.REDDIT_CLIENT_SECRET || env.REDDIT_CLIENT_SECRET_FILE) {
+    throw new ConfigError('Reddit client-secret / refresh is not implemented; configure a bearer access token only, via REDDIT_ACCESS_TOKEN_FILE');
+  }
+  const enabled = envBool(env, 'REDDIT_ADS_ENABLED', false);
+  if (!enabled) return { enabled: false };
+  const adAccountId = (env.REDDIT_AD_ACCOUNT_ID ?? '').trim();
+  const accessToken = envSecret(env, 'REDDIT_ACCESS_TOKEN');
+  if (!adAccountId) throw new ConfigError('REDDIT_AD_ACCOUNT_ID is required when REDDIT_ADS_ENABLED=true');
+  if (!accessToken) {
+    throw new ConfigError('REDDIT_ACCESS_TOKEN_FILE (or REDDIT_ACCESS_TOKEN) is required when REDDIT_ADS_ENABLED=true');
+  }
+  if (nodeEnv === 'production' && !(env.REDDIT_ACCESS_TOKEN_FILE ?? '').trim()) {
+    throw new ConfigError('production Reddit adapter requires REDDIT_ACCESS_TOKEN_FILE; inline REDDIT_ACCESS_TOKEN is refused');
+  }
+  const apiBaseUrl = (env.REDDIT_ADS_API_BASE_URL ?? REDDIT_ADS_API_BASE).trim() || REDDIT_ADS_API_BASE;
+  if (!apiBaseUrl.startsWith('https://') && nodeEnv === 'production') {
+    throw new ConfigError('REDDIT_ADS_API_BASE_URL must be https in production');
+  }
+  const conversionPixelId = (env.REDDIT_CONVERSION_PIXEL_ID ?? '').trim() || undefined;
+  return {
+    enabled: true,
+    adAccountId,
+    accessToken,
+    apiBaseUrl,
+    timeoutMs: envInt(env, 'REDDIT_HTTP_TIMEOUT_MS', 10_000, 500, 60_000),
+    userAgent: (env.REDDIT_USER_AGENT ?? REDDIT_USER_AGENT).trim() || REDDIT_USER_AGENT,
+    conversionPixelId,
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConfig {
-  if (env.REDDIT_CLIENT_SECRET || env.META_ACCESS_TOKEN || env.GOOGLE_ADS_DEVELOPER_TOKEN || env.MICROSOFT_ADS_CLIENT_SECRET) {
-    throw new ConfigError('provider credentials do not belong in ad-domain env in this slice; adapters are unconfigured until a later task');
+  if (env.META_ACCESS_TOKEN || env.GOOGLE_ADS_DEVELOPER_TOKEN || env.MICROSOFT_ADS_CLIENT_SECRET) {
+    throw new ConfigError('Meta/Google/Microsoft credentials are refused; only the Reddit adapter can be enabled in this slice');
   }
 
   const nodeEnv = runtimeEnv(env.NODE_ENV);
@@ -137,5 +169,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
       maxDailyBudgetCurrency,
       allowTestFakes,
     },
+    reddit: loadRedditConfig(env, nodeEnv),
   };
 }

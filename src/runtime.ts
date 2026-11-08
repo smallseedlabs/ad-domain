@@ -11,6 +11,8 @@ import { SystemClock, type Clock } from './ports/clock.js';
 import type { AuditPublisher } from './ports/audit-publisher.js';
 import type { ServiceAuth } from './ports/auth.js';
 import type { ProviderAdapter } from './providers/port.js';
+import { FetchHttpTransport } from './providers/http.js';
+import { RedditAdsAdapter } from './providers/reddit/adapter.js';
 import { UnconfiguredProvider } from './providers/unconfigured.js';
 import type { AdsStore } from './store/port.js';
 import { MemoryStore } from './store/memory.js';
@@ -103,7 +105,9 @@ export async function createRuntime(config: AdsServiceConfig, overrides: Runtime
   if (overrides.provider?.name === 'fake' && (config.env !== 'test' || !config.ads.allowTestFakes)) {
     throw new ConfigError('FakeProvider is test-only and requires ADS_ALLOW_TEST_FAKES');
   }
-  const provider = overrides.provider ?? new UnconfiguredProvider();
+  const provider =
+    overrides.provider ??
+    (config.reddit.enabled ? new RedditAdsAdapter(config.reddit, new FetchHttpTransport()) : new UnconfiguredProvider());
 
   const relay = new OutboxRelay({
     store,
