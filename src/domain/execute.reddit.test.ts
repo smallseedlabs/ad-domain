@@ -12,10 +12,12 @@ import {
   FIXTURE_GOAL_ID,
   FIXTURE_LANDING_PAGE_URL,
   FIXTURE_PROVIDER_POST_ID,
+  FIXTURE_PROVIDER_PROFILE_ID,
   FIXTURE_TRACE_ID,
   FIXTURE_USER_ID,
   FIXTURE_WORKSPACE,
 } from '../testing/config.js';
+import { ClosedResearchAcceptanceGate } from './research-acceptance.js';
 import { executeCampaignAction } from './execute.js';
 
 const ACCOUNT = 'a2_testaccount';
@@ -49,6 +51,24 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
   it('persists Reddit mappings and the supplied landing URL on success', async () => {
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
+      {
+        status: 201,
+        body: { data: { id: 'job_1', status: 'QUEUED', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            id: 'job_1',
+            status: 'SUCCESS',
+            post_id: FIXTURE_PROVIDER_POST_ID,
+            error_message: null,
+            created_at: '2026-11-08T00:00:00Z',
+            modified_at: '2026-11-08T00:00:01Z',
+          },
+        },
+      },
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_exec', ad_account_id: ACCOUNT } } },
@@ -128,6 +148,44 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
     }
   });
 
+  it('refuses create before billing when research acceptance is unverified [closed gate]', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+    ]);
+    const store = new MemoryStore();
+    await store.withTransaction((tx) =>
+      tx.upsertAccount({ workspaceId: FIXTURE_WORKSPACE, platform: 'reddit', accountId: ACCOUNT, status: 'ready' })
+    );
+    const provider = new RedditAdsAdapter(
+      {
+        enabled: true,
+        adAccountId: ACCOUNT,
+        accessToken: 'test-token-not-real',
+        apiBaseUrl: REDDIT_ADS_API_BASE,
+        timeoutMs: 1_000,
+        userAgent: 'proba-ads-test',
+        conversionPixelId: PIXEL,
+      },
+      http
+    );
+    const result = await executeCampaignAction(
+      {
+        config: testConfig({ ADS_ALLOW_TEST_FAKES: 'false' }),
+        store,
+        provider,
+        clock: new SystemClock(),
+        researchAcceptance: new ClosedResearchAcceptanceGate(),
+      },
+      createReq(),
+      caller(),
+      randomUUID()
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('research_acceptance_unverified');
+    expect(http.calls).toHaveLength(0);
+    expect(store.campaigns.size).toBe(0);
+  });
+
   it('persists ambiguous outcome on provider timeout and refuses replay', async () => {
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
@@ -153,8 +211,16 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
     );
     const key = randomUUID();
     const deps = { config: testConfig(), store, provider, clock: new SystemClock() };
-    await expect(executeCampaignAction(deps, createReq(), caller(), key)).rejects.toBeInstanceOf(AmbiguousOutcomeError);
-    await expect(executeCampaignAction(deps, createReq(), caller(), key)).rejects.toBeInstanceOf(AmbiguousOutcomeError);
+    const timeoutReq = {
+      ...createReq(),
+      args: fixtureCreateArgs({
+        name: 'reddit-execute',
+        providerAccountId: ACCOUNT,
+        providerPostId: FIXTURE_PROVIDER_POST_ID,
+      }),
+    };
+    await expect(executeCampaignAction(deps, timeoutReq, caller(), key)).rejects.toBeInstanceOf(AmbiguousOutcomeError);
+    await expect(executeCampaignAction(deps, timeoutReq, caller(), key)).rejects.toBeInstanceOf(AmbiguousOutcomeError);
     expect(http.calls.length).toBe(4);
     expect(http.calls.some((call) => call.method === 'POST' && call.url.includes('/campaigns'))).toBe(true);
   });
@@ -182,7 +248,14 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
     );
     const result = await executeCampaignAction(
       { config: testConfig(), store, provider, clock: new SystemClock() },
-      createReq(),
+      {
+        ...createReq(),
+        args: fixtureCreateArgs({
+          name: 'reddit-execute',
+          providerAccountId: ACCOUNT,
+          providerPostId: FIXTURE_PROVIDER_POST_ID,
+        }),
+      },
       caller(),
       randomUUID()
     );

@@ -19,6 +19,10 @@ import type { AdsServiceConfig } from '../types/config.js';
 import type { AdsDomainResult, CampaignActionRequest } from '../types/http.js';
 import { adsAuditEvent } from '../audit/emit.js';
 import { evaluateBillingGate } from './billing.js';
+import {
+  researchAcceptanceGateFromConfig,
+  type ResearchAcceptanceGate,
+} from './research-acceptance.js';
 import { parseVerbArgs, spendClassFor, type ParsedAdsArgs } from './verbs.js';
 
 export interface ExecuteDeps {
@@ -26,6 +30,7 @@ export interface ExecuteDeps {
   store: AdsStore;
   provider: ProviderAdapter;
   clock: Clock;
+  researchAcceptance?: ResearchAcceptanceGate;
 }
 
 function replay(record: CommandRecord): AdsDomainResult {
@@ -215,6 +220,20 @@ async function executeOnce(
       );
       await finishRejected(tx, deps, request, idempotencyKey, args, result);
       return { kind: 'done' as const, result };
+    }
+
+    if (args.verb === 'ads.create_campaign' && args.researchAcceptance) {
+      const gate = deps.researchAcceptance ?? researchAcceptanceGateFromConfig(deps.config);
+      const verified = gate.verify({
+        binding: args.researchAcceptance,
+        workspaceId: request.workspaceId,
+        goalId: request.goalId,
+      });
+      if (!verified.ok) {
+        const result = fail(verified.code, verified.message);
+        await finishRejected(tx, deps, request, idempotencyKey, args, result);
+        return { kind: 'done' as const, result };
+      }
     }
 
     const billed = await deps.provider.billingClaim(request.workspaceId, args.platform);

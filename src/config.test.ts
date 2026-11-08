@@ -9,6 +9,7 @@ describe('config [unit]', () => {
     expect(config.auth.allowedIssuers).toEqual(['proba-gateway']);
     expect(config.auth.allowedSubjects).toEqual(['gateway']);
     expect(config.ads.maxDailyBudget).toBeNull();
+    expect(config.ads.researchAcceptanceMode).toBe('closed');
     expect(config.audit.stream).toBe('proba.audit.events');
   });
 
@@ -16,6 +17,16 @@ describe('config [unit]', () => {
     expect(() => loadConfig({ NODE_ENV: 'test', INGRESS_PUBLIC: 'true' })).toThrow(ConfigError);
     expect(() => loadConfig({ NODE_ENV: 'test', REDDIT_CLIENT_SECRET: 'x' })).toThrow(ConfigError);
     expect(() => loadConfig({ NODE_ENV: 'test', META_ACCESS_TOKEN: 'x' })).toThrow(ConfigError);
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        AUDIT_PUBLISHER: 'redis',
+        REDIS_URL: 'redis://127.0.0.1:9',
+        DATABASE_URL: 'postgres://ads:x@127.0.0.1:9/ad_domain',
+        GATEWAY_SERVICE_PUBLIC_KEY_FILE: '/tmp/does-not-need-to-exist-for-this-assert.jwks',
+        ADS_RESEARCH_ACCEPTANCE_MODE: 'shape',
+      })
+    ).toThrow(/shape is refused/);
   });
 
   it('does not register Reddit unless explicitly enabled with account and token', () => {

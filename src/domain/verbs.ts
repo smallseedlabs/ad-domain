@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { RequestValidationError } from '../errors.js';
 import { researchAcceptanceBindingSchema, type ResearchAcceptanceBinding } from '../protocol.js';
 import { AD_PLATFORMS, type AdsVerb } from '../types/http.js';
+import { parseAdsCreative, REDDIT_POST_ID, REDDIT_PROFILE_ID, type AdsCreative } from './creative.js';
+import { parseAdsSchedule, parseAdsTargeting, type AdsSchedule, type AdsTargeting } from './targeting.js';
 import { assertLandingPageUrl } from './url.js';
-
-const REDDIT_POST_ID = /^t3_[A-Za-z0-9][A-Za-z0-9_]{1,127}$/;
 
 export type SpendClass = 'none' | 'safety_decrease' | 'spend_increase';
 
@@ -32,7 +32,11 @@ const createArgsSchema = z
     platform: z.enum(AD_PLATFORMS),
     expectedVersion: z.number().int().positive().optional(),
     providerAccountId: z.string().min(1).max(128).optional(),
-    providerPostId: z.string().regex(REDDIT_POST_ID, 'providerPostId must be an existing Reddit post id (t3_…)'),
+    providerProfileId: z.string().regex(REDDIT_PROFILE_ID, 'providerProfileId must be a Reddit profile id').optional(),
+    providerPostId: z.string().regex(REDDIT_POST_ID, 'providerPostId must be an existing Reddit post id (t3_…)').optional(),
+    creative: z.unknown().optional(),
+    targeting: z.unknown().optional(),
+    schedule: z.unknown().optional(),
     researchAcceptance: researchAcceptanceBindingSchema,
   })
   .strict();
@@ -66,7 +70,11 @@ export interface ParsedAdsArgs {
   probaCampaignId?: string;
   expectedVersion?: number;
   providerAccountId?: string;
+  providerProfileId?: string;
   providerPostId?: string;
+  creative?: AdsCreative;
+  targeting?: AdsTargeting;
+  schedule?: AdsSchedule;
   researchAcceptance?: ResearchAcceptanceBinding;
 }
 
@@ -78,6 +86,21 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
   if (name === 'ads.create_campaign') {
     const parsed = createArgsSchema.safeParse(raw);
     if (!parsed.success) throw new RequestValidationError(parsed.error.issues[0]?.message ?? 'invalid create args');
+    const hasPost = Boolean(parsed.data.providerPostId);
+    const hasCreative = parsed.data.creative !== undefined;
+    if (hasPost && hasCreative) {
+      throw new RequestValidationError(
+        'pass either creative (Ads will create a structured post job) or providerPostId (existing t3_), not both'
+      );
+    }
+    if (!hasPost && !hasCreative) {
+      throw new RequestValidationError(
+        'creative (approved copy/media) is required to create a Reddit structured post; providerPostId is only for an already-existing t3_. Neither was supplied.'
+      );
+    }
+    if (parsed.data.platform !== 'reddit' && (hasCreative || parsed.data.targeting !== undefined || parsed.data.schedule !== undefined)) {
+      throw new RequestValidationError('creative, targeting, and schedule are Reddit-only in this slice; other providers remain unconfigured');
+    }
     return {
       verb: name,
       name: parsed.data.name,
@@ -87,7 +110,11 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
       platform: parsed.data.platform,
       expectedVersion: parsed.data.expectedVersion,
       providerAccountId: parsed.data.providerAccountId,
+      providerProfileId: parsed.data.providerProfileId,
       providerPostId: parsed.data.providerPostId,
+      creative: hasCreative ? parseAdsCreative(parsed.data.creative) : undefined,
+      targeting: parseAdsTargeting(parsed.data.targeting),
+      schedule: parseAdsSchedule(parsed.data.schedule),
       researchAcceptance: parsed.data.researchAcceptance,
     };
   }

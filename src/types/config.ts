@@ -39,6 +39,8 @@ export interface AdsServiceConfig {
     maxDailyBudget: number | null;
     maxDailyBudgetCurrency: string | null;
     allowTestFakes: boolean;
+    /** closed (default): well-formed researchAcceptance is not treated as Hub-accepted. shape is refused in production. */
+    researchAcceptanceMode: 'closed' | 'shape';
   };
   reddit:
     | { enabled: false }

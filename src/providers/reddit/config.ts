@@ -18,6 +18,8 @@ export interface RedditAdsConfig {
 
 export const REDDIT_REPORT_DEFAULT_MAX_PAGES = 10;
 export const REDDIT_REPORT_PAGE_SIZE = 100;
+/** Bounded GETs of a structured-post job after POST. No extra POST; still-QUEUED is ambiguous. */
+export const REDDIT_POST_JOB_MAX_GETS = 3;
 
 export function redditConversionPixelId(raw: string | undefined): string | undefined {
   const value = (raw ?? '').trim();

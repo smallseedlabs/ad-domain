@@ -16,6 +16,7 @@ import {
   FIXTURE_GOAL_ID,
   FIXTURE_LANDING_PAGE_URL,
   FIXTURE_PROVIDER_POST_ID,
+  FIXTURE_PROVIDER_PROFILE_ID,
   FIXTURE_TRACE_ID,
   FIXTURE_USER_ID,
 } from '../../testing/config.js';
@@ -49,6 +50,24 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
     );
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
+      {
+        status: 201,
+        body: { data: { id: 'job_1', status: 'QUEUED', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            id: 'job_1',
+            status: 'SUCCESS',
+            post_id: FIXTURE_PROVIDER_POST_ID,
+            error_message: null,
+            created_at: '2026-11-08T00:00:00Z',
+            modified_at: '2026-11-08T00:00:01Z',
+          },
+        },
+      },
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_pg', ad_account_id: ACCOUNT } } },
@@ -149,6 +168,7 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
             name: 'pg-timeout',
             dailyBudget: 8,
             providerAccountId: ACCOUNT,
+            providerPostId: FIXTURE_PROVIDER_POST_ID,
           }),
         },
         {
@@ -176,6 +196,7 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
             name: 'pg-timeout',
             dailyBudget: 8,
             providerAccountId: ACCOUNT,
+            providerPostId: FIXTURE_PROVIDER_POST_ID,
           }),
         },
         {

@@ -158,6 +158,22 @@ export class RedditAdsClient {
     return this.send<Record<string, unknown>>('PATCH', `/ad_groups/${encodeURIComponent(adGroupId)}`, { data });
   }
 
+  listProfilesByAdAccount(adAccountId: string) {
+    return this.send<unknown>('GET', `/ad_accounts/${encodeURIComponent(adAccountId)}/profiles`);
+  }
+
+  createStructuredPostJob(profileId: string, data: Record<string, unknown>) {
+    return this.send<Record<string, unknown>>(
+      'POST',
+      `/profiles/${encodeURIComponent(profileId)}/structured_posts/jobs`,
+      { data }
+    );
+  }
+
+  getStructuredPostJob(jobId: string) {
+    return this.send<Record<string, unknown>>('GET', `/structured_posts/jobs/${encodeURIComponent(jobId)}`);
+  }
+
   getStructuredPost(postId: string) {
     return this.send<Record<string, unknown>>('GET', `/structured_posts/${encodeURIComponent(postId)}`);
   }
