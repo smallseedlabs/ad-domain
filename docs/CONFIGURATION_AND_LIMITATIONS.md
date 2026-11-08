@@ -7,7 +7,7 @@ Engineering inventory. **Not** a product spec rewrite and **not** activation of 
 
 ## 1. CURRENT VERIFIED
 
-Internal Node 20 / TypeScript / Fastify service. Default bind `127.0.0.1:3800` (production host `0.0.0.0`). Inbound identity is a short-lived EdDSA JWT: signature, `iss` allowlist (default `proba-gateway`), `sub` allowlist (default `gateway`), `aud=proba-ads`, `exp`/`iat`, max TTL 120s, `jti`. Optional `workspaceId` claim, when present, must match the body. Current gateway mint for Ads tokens does **not** include `workspaceId`; body `workspaceId` is still required and scopes all rows.
+Internal Node **22.12+** / TypeScript / **Fastify 5** service (this process; sibling Hub/gateway may still be Fastify 4 / Node 20). Vitest 5.1.0’s engine is `^22.12.0 || ^24 || >=26`; Fastify 5.12.8 pulls `cookie@2` (`engines.node >=22`) via `light-my-request`. The image and CI track that floor so tests are not run on an unsupported Node. Default bind `127.0.0.1:3800` (production host `0.0.0.0`). Inbound identity is a short-lived EdDSA JWT: signature, `iss` allowlist (default `proba-gateway`), `sub` allowlist (default `gateway`), `aud=proba-ads`, `exp`/`iat`, max TTL 120s, `jti`. Optional `workspaceId` claim, when present, must match the body. Current gateway mint for Ads tokens does **not** include `workspaceId`; body `workspaceId` is still required and scopes all rows.
 
 | Key | Default | Range / notes | Unknown / fail |
 | --- | --- | --- | --- |
@@ -36,8 +36,8 @@ Audit: domain writes and `ads.audit_outbox` share a transaction. Relay `XADD`s p
 
 ## 2. Not built / not claimed
 
-- Live Reddit/Microsoft/Google/Meta adapters (later task). Credentials refused in this process.
-- Hub → gateway → Ads end-to-end. Hub/LLM PRs from earlier workstreams stay unmerged; this repo does not retry them.
+- Live Reddit/Microsoft/Google/Meta adapters (Task 5+, queued). Credentials refused in this process.
+- Hub → gateway → Ads end-to-end. Gateway PR3 is merged; Hub/web destination URL capture and research→create are still later. This repo does not retry Hub/web/protocol PRs.
 - Operator/portal destination URL field, protocol `create_goal` URL, research→sourced findings→user validation→create. Those are absent upstream. **Minimal future hook:** pass the user-entered URL as gateway tool arg `landingPageUrl` (already the Ads request field). Do not invent a research schema here.
 - `workspaceId` on gateway-minted Ads tokens (compatible additive claim).
 - Workload/workspace spend meshes, `$2` model caps, live automation delegation.
@@ -45,23 +45,60 @@ Audit: domain writes and `ads.audit_outbox` share a transaction. Relay `XADD`s p
 
 ## 3. npm audit (this checkout)
 
-Recorded 2026-11-08 after a `tinypool@2.2.0` override (that removed two **dev** criticals). **`npm audit fix --force` was not used.** Test pass is not a security clearance.
+Recorded 2026-11-08 after a **tested** Fastify **5.12.8** + Vitest **5.1.0** + Vite **6.4.5** upgrade on this service. Sibling Fastify 4 / Vitest 2 stacks were **not** used as a reason to keep known-vulnerable majors here. **`npm audit fix --force` was not used.** `--legacy-peer-deps` was not used. Test pass is not a security clearance.
 
-Current `npm audit` (prod+dev): **15** advisories — **9 moderate, 5 high, 1 critical**.  
-`npm audit --omit=dev` (production tree): **4 high, 0 critical** (`fastify`, `find-my-way`, `zod`, and `@smallseedlabs/proba-protocol` via `zod`).
+Current `npm audit` (prod+dev): **8** advisories — **6 moderate, 2 high, 0 critical**.  
+`npm audit --omit=dev` (production tree): **2 high, 0 critical** (`zod@3.25.76` and `@smallseedlabs/proba-protocol@0.4.0` via `zod`).
 
 | Package | Severity | Tree | Compatible fix attempted | Status |
 | --- | --- | --- | --- | --- |
-| `tinypool` (via vitest) | critical (2 GHSAs, prototype pollution in worker `run()` options) | **dev** | override `tinypool@2.2.0` (patched ≥2.1.2) without bumping vitest | **remediated** in lockfile (`npm ls` shows `tinypool@2.2.0 overridden`) |
-| `vitest` ≤4.1.10 (`2.1.9` installed) | critical: “when Vitest UI server is listening, arbitrary file can be read and executed” plus nested mocker/vite | **dev** | npm’s only advertised fix is vitest **5.1.0** (semver major). Sibling stack is vitest 2; this repo runs `vitest run` (no UI server). | **unresolved**; reachability of the UI-server GHSA to CI/`vitest run` is **uncertain / likely low**, not proven absent. The nested `@vitest/mocker` path-traversal item is also unproven for this `vitest run` usage. |
-| `fastify` 4.29.1 (latest 4.x) | high (rollup of several GHSAs, some individually low/moderate/high) | **prod** | npm’s fix is fastify **5.12.8** (breaking vs sibling Fastify 4 stack). No 4.x patch exists. | **unresolved**. Service is internal, `INGRESS_PUBLIC` refused, `trustProxy: false`, HTTP/2 not enabled, bodies validated with **zod** not Fastify schemas. Schema/HTTP2 CVEs are **probably not reachable**; Content-Type tab / not-found URL / async-validation collision items are **not ruled out**. |
-| `find-my-way` 8.2.2 | high HTTP/2 DDoS | **prod** (fastify 4) | last 8.x; patched line is 9.7+. Overriding to 9.x is an untested Fastify 4 break. | **unresolved**; HTTP/2 is not enabled here, impact **uncertain** |
-| `zod` 3.25.76 | high memory exhaustion on oversized constrained collections | **prod** (+ protocol) | fix is zod **≥4.6.6**; protocol v0.4.0 and the rest of Proba are zod 3. No compatible 3.x patch. | **unresolved**. Request bodies capped (`ADS_MAX_REQUEST_BYTES` default 262144). Whether that bound is enough against the GHSA is **unverified**. |
-| `vite` (via vitest) | high (rollup; includes Windows `launch-editor` `fs.existsSync` bypass) | **dev** | advertised fix is vitest 5 / vite ≥6.4.4. Overriding vite 6 under vitest 2 is an untested break. | **unresolved**. Vite **dev server** is not this service’s runtime. The high Windows editor-flag item does not apply to this macOS/Linux Ads HTTP process; remaining vite path-traversal items apply to `vite`/test tooling, not proven in `vitest run`. |
-| `@vitest/mocker` / `esbuild` / `vite-node` | moderate | **dev** | advertised as vitest 5 | **unresolved**; not the Ads HTTP process. esbuild “any website can talk to the dev server” assumes a listening esbuild/vite server. |
-| `minimatch` 9 via typescript-eslint | moderate | **dev** | advertised “fix” installs parser **6.15.0** (semver **downgrade**/break) | **unresolved**; eslint-time only |
+| `fastify` | high (4.x rollup) | **prod** | upgraded to **5.12.8** (`find-my-way@9.10.0`). HTTP surface is `inject`/`listen({host,port})`, `logger: false`, `trustProxy: false`, no Fastify JSON schemas. Runtime/CI/image moved to Node **22.12+** with this upgrade. | **remediated** |
+| `find-my-way` HTTP/2 DDoS | high | **prod** | comes in with Fastify 5 (9.10.0 ≥ 9.7) | **remediated** |
+| `vitest` UI-server arbitrary file read/exec | critical | **dev** | upgraded to **5.1.0** (npm’s patched line). Peer Vite resolved with direct `vite@^6.4.5` (patched ≥6.4.4) and `@types/node@^22` (types only; runtime engine remains Node ≥20). | **remediated** |
+| `vite` / `@vitest/mocker` / `esbuild` / `vite-node` / `tinypool` | high/moderate/critical | **dev** | pulled by Vitest 5 + Vite 6.4.5; `tinypool` is no longer in this tree | **remediated** in current lockfile |
+| `zod` 3.25.76 | high: collection memory exhaustion | **prod** (+ protocol) | **not upgraded.** See §3.1. Body cap `ADS_MAX_REQUEST_BYTES` default 262144 is a partial bound, **unverified** vs the GHSA. | **unresolved**; blocked on protocol |
+| `@smallseedlabs/proba-protocol` | high via `zod` | **prod** | no ads-only compatible fix | **unresolved**; blocked on protocol |
+| `minimatch` 9.0.9 via typescript-eslint 7 / eslint 8 | moderate | **dev** | already latest 9.x. npm’s advertised “fix” is parser **6.15.0** (semver **downgrade**). A real path is eslint 9 + typescript-eslint 8 (lint-stack major, not this PR). | **unresolved**; eslint-time only |
 
 Do not treat this table as an exploitability proof.
+
+### 3.1 Zod / protocol prerequisite (why Ads cannot take Zod 4 in this PR)
+
+Pinned dependency: `github:smallseedlabs/proba-protocol#v0.4.0` (`@smallseedlabs/proba-protocol@0.4.0`). That package’s `package.json` depends on:
+
+- `zod@^3.23.8` (Zod **3** API)
+- `zod-to-json-schema@^3.23.3` (Zod **3** only; used by `scripts/generate-schemas.js`)
+
+Protocol TypeScript schemas (`src/schemas/audit.ts`, `command.ts`, `event.ts`, `ui.ts`, `metrics.ts`, `context.ts`) `import { z } from 'zod'`. Ads imports `validateAuditEvent` / `buildAuditEvent` from that package and also uses Zod 3 locally (`z.record(z.unknown())`, `z.string().datetime()`, `z.ZodIssueCode.custom`) so HTTP and audit validation share one major.
+
+Options that were **rejected** here (incompatible or incomplete):
+
+| Option | Why not in this PR |
+| --- | --- |
+| `overrides: { "zod": "4.6.6" }` | Forces protocol onto Zod 4’s default export. That is a different API (`z.record` arity, JSON schema helper, issue codes). It is an incompatible resolution, not a supported upgrade. |
+| `npm audit fix --force` | Would also move Fastify/Vitest/eslint along npm’s breakages without a tested tree. Already done Fastify/Vitest **with tests** instead. |
+| Dual-major: Ads on Zod 4, nested protocol on Zod 3 | Two schema runtimes in one process. Production `npm audit --omit=dev` would **still** report protocol’s nested Zod 3. Does not clear the remaining highs. |
+| Edit `proba-protocol` in this run | Other workstream owns protocol/gateway/hub/web. Out of scope. |
+
+**Upstream prerequisite (protocol workstream, then a follow-up Ads bump):**
+
+1. Publish a protocol version that depends on **`zod@>=4.6.6`** (the GHSA patched line; 4.6.7 is current).
+2. Replace **`zod-to-json-schema`** (no Zod 4 support) with Zod 4’s `z.toJSONSchema()` (or another Zod 4-capable generator) in `scripts/generate-schemas.js`.
+3. Tag that release (for example `v0.5.0` — exact tag is the protocol owners’). Regenerated `schemas/*.json` must stay compatible with existing audit consumers.
+4. Ads then changes `"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#<new-tag>"` **and** `"zod": "^4.6.6"` together, and updates local schemas (`z.record(z.string(), z.unknown())`, datetime helpers, issue codes).
+
+Until that tag exists, keeping Ads on Zod 3 aligned with protocol v0.4.0 is the compatibility-safe option. Body-size limits are **not** a substitute for the patched Zod line.
+
+### 3.2 Task 5 (queued — Reddit module)
+
+Not this PR. First live adapter is Reddit (gateway `FIRST_AD_PLATFORMS` starts with `reddit`). Requirements that the foundation already encodes:
+
+- Implement `ProviderAdapter` for Reddit; default remains `UnconfiguredProvider` until that module is configured.
+- Never report mutation `ok: true` without a real provider result. Uncertain outcomes stay `ambiguous` and are not retried as success.
+- Create/resume/spend-increase still require verified billing; pause may skip ad-balance only. Billing `unknown` is not a verified zero.
+- Credentials do not belong in this process until the adapter task; env keys for live networks are already refused at config load.
+- `landingPageUrl` stays a request argument (no hardcoded/default destination).
+- Tests: unit fakes vs isolated PG/Redis; **no live Reddit spend** in CI.
 
 ## 4. Test vs real
 
