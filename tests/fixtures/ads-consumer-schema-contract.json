@@ -1,0 +1,38 @@
+{
+  "description": "Ads consumer contract against protocol JSON Schema bundle at github:smallseedlabs/proba-protocol#v0.6.0 (released tag, commit 4ac21825570703b0ae5849a5fc6ed930c3694b0c).",
+  "pin": "v0.6.0",
+  "bundleVersion": "0.6.0",
+  "definitions": {
+    "AuditEvent": {
+      "required": [
+        "version",
+        "eventId",
+        "traceId",
+        "spanId",
+        "workspaceId",
+        "actor",
+        "service",
+        "action",
+        "category",
+        "outcome",
+        "occurredAt",
+        "details"
+      ]
+    },
+    "MetricObservation": {
+      "required": [
+        "version",
+        "platform",
+        "accountId",
+        "campaignId",
+        "granularity",
+        "periodStart",
+        "periodEnd",
+        "metrics",
+        "currency",
+        "fetchedAt",
+        "revision"
+      ]
+    }
+  }
+}

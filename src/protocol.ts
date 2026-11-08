@@ -10,6 +10,7 @@ export type {
   AuditEventInput,
   MetricObservation,
   MetricValues,
+  ResearchAcceptanceBinding,
 } from '@smallseedlabs/proba-protocol';
 
 export {
@@ -22,6 +23,7 @@ export {
   generateSpanId,
   getAuditActionInfo,
   isMetricObservation,
+  researchAcceptanceBindingSchema,
   validateAuditEvent,
   validateMetricObservation,
 } from '@smallseedlabs/proba-protocol';

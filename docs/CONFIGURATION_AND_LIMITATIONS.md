@@ -45,50 +45,42 @@ Audit: domain writes and `ads.audit_outbox` share a transaction. Relay `XADD`s p
 
 ## 3. npm audit (this checkout)
 
-Recorded 2026-11-08 after a **tested** Fastify **5.12.8** + Vitest **5.1.0** + Vite **6.4.5** upgrade on this service. Sibling Fastify 4 / Vitest 2 stacks were **not** used as a reason to keep known-vulnerable majors here. **`npm audit fix --force` was not used.** `--legacy-peer-deps` was not used. Test pass is not a security clearance.
-
-Current `npm audit` (prod+dev): **8** advisories — **6 moderate, 2 high, 0 critical**.  
-`npm audit --omit=dev` (production tree): **2 high, 0 critical** (`zod@3.25.76` and `@smallseedlabs/proba-protocol@0.4.0` via `zod`).
+Recorded 2026-11-08 after this PR’s install on top of Ads PR2 (Fastify **5.12.8** / Vitest **5.1.0** / Vite **6.4.5**). `npm audit --omit=dev` → **0** vulnerabilities. Full tree (`prod+dev`): **6 moderate, 0 high, 0 critical** (`minimatch` via eslint 8 / typescript-eslint 7). **`npm audit fix --force` was not used.** `--legacy-peer-deps` was not used. Test pass is not a security clearance.
 
 | Package | Severity | Tree | Compatible fix attempted | Status |
 | --- | --- | --- | --- | --- |
-| `fastify` | high (4.x rollup) | **prod** | upgraded to **5.12.8** (`find-my-way@9.10.0`). HTTP surface is `inject`/`listen({host,port})`, `logger: false`, `trustProxy: false`, no Fastify JSON schemas. Runtime/CI/image moved to Node **22.12+** with this upgrade. | **remediated** |
-| `find-my-way` HTTP/2 DDoS | high | **prod** | comes in with Fastify 5 (9.10.0 ≥ 9.7) | **remediated** |
-| `vitest` UI-server arbitrary file read/exec | critical | **dev** | upgraded to **5.1.0** (npm’s patched line). Peer Vite resolved with direct `vite@^6.4.5` (patched ≥6.4.4) and `@types/node@^22` (types only; runtime engine remains Node ≥20). | **remediated** |
-| `vite` / `@vitest/mocker` / `esbuild` / `vite-node` / `tinypool` | high/moderate/critical | **dev** | pulled by Vitest 5 + Vite 6.4.5; `tinypool` is no longer in this tree | **remediated** in current lockfile |
-| `zod` 3.25.76 | high: collection memory exhaustion | **prod** (+ protocol) | **not upgraded.** See §3.1. Body cap `ADS_MAX_REQUEST_BYTES` default 262144 is a partial bound, **unverified** vs the GHSA. | **unresolved**; blocked on protocol |
-| `@smallseedlabs/proba-protocol` | high via `zod` | **prod** | no ads-only compatible fix | **unresolved**; blocked on protocol |
-| `minimatch` 9.0.9 via typescript-eslint 7 / eslint 8 | moderate | **dev** | already latest 9.x. npm’s advertised “fix” is parser **6.15.0** (semver **downgrade**). A real path is eslint 9 + typescript-eslint 8 (lint-stack major, not this PR). | **unresolved**; eslint-time only |
+| `fastify` | high (4.x rollup) | **prod** | upgraded to **5.12.8** in Ads PR2 | **remediated** (PR2) |
+| `find-my-way` HTTP/2 DDoS | high | **prod** | Fastify 5 (`9.10.0` ≥ 9.7) | **remediated** (PR2) |
+| `vitest` / `vite` / `tinypool` | critical/high/moderate | **dev** | Vitest **5.1.0** + Vite **6.4.5** in Ads PR2 | **remediated** (PR2) |
+| `zod` collection memory exhaustion | high | **prod** | Ads `zod@^4.6.7` **with** protocol SHA below. No `overrides`. | **this PR** |
+| `@smallseedlabs/proba-protocol` via Zod 3 | high | **prod** | pin unmerged protocol SHA (Zod 4.6.7 source). Not a `v0.6.0` tag. | **this PR**; tag still missing |
+| `minimatch` 9.0.9 via typescript-eslint 7 / eslint 8 | moderate | **dev** | already latest 9.x. npm’s advertised “fix” is parser **6.15.0** (semver **downgrade**). | **unresolved**; eslint-time only |
 
 Do not treat this table as an exploitability proof.
 
-### 3.1 Zod / protocol prerequisite (why Ads cannot take Zod 4 in this PR)
+### 3.1 Protocol pin (released `v0.6.0`)
 
-Pinned dependency: `github:smallseedlabs/proba-protocol#v0.4.0` (`@smallseedlabs/proba-protocol@0.4.0`). That package’s `package.json` depends on:
+Verified 2026-11-08: protocol PRs [#22](https://github.com/smallseedlabs/proba-protocol/pull/22) and [#23](https://github.com/smallseedlabs/proba-protocol/pull/23) are **merged**. GitHub release/tag [`v0.6.0`](https://github.com/smallseedlabs/proba-protocol/releases/tag/v0.6.0) is commit `4ac21825570703b0ae5849a5fc6ed930c3694b0c` (`@smallseedlabs/proba-protocol@0.6.0`, `zod@^4.6.7`, no `zod-to-json-schema`).
 
-- `zod@^3.23.8` (Zod **3** API)
-- `zod-to-json-schema@^3.23.3` (Zod **3** only; used by `scripts/generate-schemas.js`)
+```
+"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#v0.6.0"
+"zod": "^4.6.7"
+```
 
-Protocol TypeScript schemas (`src/schemas/audit.ts`, `command.ts`, `event.ts`, `ui.ts`, `metrics.ts`, `context.ts`) `import { z } from 'zod'`. Ads imports `validateAuditEvent` / `buildAuditEvent` from that package and also uses Zod 3 locally (`z.record(z.unknown())`, `z.string().datetime()`, `z.ZodIssueCode.custom`) so HTTP and audit validation share one major.
+No `overrides`. `tests/fixtures/ads-consumer-schema-contract.json` loads `@smallseedlabs/proba-protocol/schemas` (AuditEvent + MetricObservation).
 
-Options that were **rejected** here (incompatible or incomplete):
+Rejected still:
 
-| Option | Why not in this PR |
+| Option | Why not |
 | --- | --- |
-| `overrides: { "zod": "4.6.6" }` | Forces protocol onto Zod 4’s default export. That is a different API (`z.record` arity, JSON schema helper, issue codes). It is an incompatible resolution, not a supported upgrade. |
-| `npm audit fix --force` | Would also move Fastify/Vitest/eslint along npm’s breakages without a tested tree. Already done Fastify/Vitest **with tests** instead. |
-| Dual-major: Ads on Zod 4, nested protocol on Zod 3 | Two schema runtimes in one process. Production `npm audit --omit=dev` would **still** report protocol’s nested Zod 3. Does not clear the remaining highs. |
-| Edit `proba-protocol` in this run | Other workstream owns protocol/gateway/hub/web. Out of scope. |
+| `overrides: { "zod": "4.6.7" }` on protocol `v0.4.0` | Forces Zod 4 onto a Zod 3 protocol API. Incompatible. |
+| Dual-major Ads Zod 4 + nested protocol Zod 3 | Two schema runtimes; prod audit would still report protocol’s Zod 3. |
+| Edit `proba-protocol` / Hub / gateway / web in this run | Other workstream. Out of scope. |
+| Pin unmerged SHA `298eeb4…` / `#e310475` | Superseded by released `v0.6.0`. |
 
-**Upstream prerequisite (protocol workstream, then a follow-up Ads bump):**
+**Merge order:** Ads [#2](https://github.com/smallseedlabs/ad-domain/pull/2) → [#3](https://github.com/smallseedlabs/ad-domain/pull/3) → [#5](https://github.com/smallseedlabs/ad-domain/pull/5) → this launch follow-up. [#4](https://github.com/smallseedlabs/ad-domain/pull/4) was the unmerged-SHA pin; this branch non-destructively merged it and retargeted to the released tag.
 
-1. Publish a protocol version that depends on **`zod@>=4.6.6`** (the GHSA patched line; 4.6.7 is current).
-2. Replace **`zod-to-json-schema`** (no Zod 4 support) with Zod 4’s `z.toJSONSchema()` (or another Zod 4-capable generator) in `scripts/generate-schemas.js`.
-3. Tag that release (for example `v0.5.0` — exact tag is the protocol owners’). Regenerated `schemas/*.json` must stay compatible with existing audit consumers.
-4. Ads then changes `"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#<new-tag>"` **and** `"zod": "^4.6.6"` together, and updates local schemas (`z.record(z.string(), z.unknown())`, datetime helpers, issue codes).
-
-Until that tag exists, keeping Ads on Zod 3 aligned with protocol v0.4.0 is the compatibility-safe option. Body-size limits are **not** a substitute for the patched Zod line.
-
+Local Zod 4 call-site updates: `z.record(z.string(), z.unknown())`, `z.uuid()`, `z.iso.datetime()`, `code: "custom"`. Body-size limits remain a partial bound, not a substitute for the patched Zod line.
 ## 4. Test vs real
 
 | Kind | How | Spends ads? |

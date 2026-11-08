@@ -27,13 +27,13 @@
   "author": "Small Seed Labs",
   "license": "Apache-2.0",
   "dependencies": {
-    "@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#v0.4.0",
+    "@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#v0.6.0",
     "fastify": "^5.12.8",
     "jose": "^5.10.0",
     "pg": "^8.13.1",
     "pino": "^9.3.2",
     "redis": "^4.7.0",
-    "zod": "^3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",

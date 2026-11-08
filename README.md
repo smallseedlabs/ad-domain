@@ -2,7 +2,7 @@
 
 Internal Ads domain HTTP service for Proba campaign identity, mapping, and fail-closed provider modules.
 
-Internal Node 22.12+ / Fastify 5 / Vitest 5 service. Reddit Ads API v3 can be enabled **explicitly** (`REDDIT_ADS_ENABLED`); otherwise the process stays on `UnconfiguredProvider`. Operator UI still has no destination URL field — `landingPageUrl` is a request argument only. Zod remains 3.x until `proba-protocol` ships a Zod 4 release (see `docs/CONFIGURATION_AND_LIMITATIONS.md`).
+Internal Node 22.12+ / Fastify 5 / Vitest 5 service. Reddit Ads API v3 can be enabled **explicitly** (`REDDIT_ADS_ENABLED`); otherwise the process stays on `UnconfiguredProvider`. `landingPageUrl` is a request argument only. Zod is **4.6.7**, paired with released `proba-protocol#v0.6.0` (see `docs/CONFIGURATION_AND_LIMITATIONS.md`).
 
 ## What this process is
 
