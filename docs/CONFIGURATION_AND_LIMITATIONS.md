@@ -52,8 +52,8 @@ Recorded 2026-11-08 after this PR’s install on top of Ads PR2 (Fastify **5.12.
 | `fastify` | high (4.x rollup) | **prod** | upgraded to **5.12.8** in Ads PR2 | **remediated** (PR2) |
 | `find-my-way` HTTP/2 DDoS | high | **prod** | Fastify 5 (`9.10.0` ≥ 9.7) | **remediated** (PR2) |
 | `vitest` / `vite` / `tinypool` | critical/high/moderate | **dev** | Vitest **5.1.0** + Vite **6.4.5** in Ads PR2 | **remediated** (PR2) |
-| `zod` collection memory exhaustion | high | **prod** | Ads `zod@^4.6.7` **with** protocol SHA below. No `overrides`. | **this PR** |
-| `@smallseedlabs/proba-protocol` via Zod 3 | high | **prod** | pin unmerged protocol SHA (Zod 4.6.7 source). Not a `v0.6.0` tag. | **this PR**; tag still missing |
+| `zod` collection memory exhaustion | high | **prod** | Ads `zod@^4.6.7` paired with released protocol `v0.6.0`. No `overrides`. | **remediated** (PR4 merged into this stack; tag published) |
+| `@smallseedlabs/proba-protocol` via Zod 3 | high | **prod** | pin released `github:smallseedlabs/proba-protocol#v0.6.0` (`4ac2182…`). | **remediated**; unmerged SHA pin superseded |
 | `minimatch` 9.0.9 via typescript-eslint 7 / eslint 8 | moderate | **dev** | already latest 9.x. npm’s advertised “fix” is parser **6.15.0** (semver **downgrade**). | **unresolved**; eslint-time only |
 
 Do not treat this table as an exploitability proof.
@@ -81,6 +81,7 @@ Rejected still:
 **Merge order:** Ads [#2](https://github.com/smallseedlabs/ad-domain/pull/2) → [#3](https://github.com/smallseedlabs/ad-domain/pull/3) → [#5](https://github.com/smallseedlabs/ad-domain/pull/5) → this launch follow-up. [#4](https://github.com/smallseedlabs/ad-domain/pull/4) was the unmerged-SHA pin; this branch non-destructively merged it and retargeted to the released tag.
 
 Local Zod 4 call-site updates: `z.record(z.string(), z.unknown())`, `z.uuid()`, `z.iso.datetime()`, `code: "custom"`. Body-size limits remain a partial bound, not a substitute for the patched Zod line.
+
 ## 4. Test vs real
 
 | Kind | How | Spends ads? |
@@ -96,7 +97,7 @@ Compose ports `127.0.0.1:55436` (Postgres) and `127.0.0.1:56381` (Redis) avoid s
 
 In-process module, not a separate deployment. Default remains `UnconfiguredProvider`. The Reddit adapter is constructed only when `REDDIT_ADS_ENABLED=true` **and** `REDDIT_AD_ACCOUNT_ID` plus `REDDIT_ACCESS_TOKEN_FILE` (production) or `REDDIT_ACCESS_TOKEN` (non-production) are set. Incomplete enablement refuses process start. Client-secret / refresh is **not** implemented (`REDDIT_CLIENT_SECRET` is refused). Token expiry surfaces as 401 fail-closed.
 
-Public docs used (read-only, 2026-11-08): [Reddit Advertising API v3](https://ads-api.reddit.com/docs/v3/api/reddit-advertising-api), [Create Campaign](https://ads-api.reddit.com/docs/v3/api/create-campaign), [Create Ad Group](https://ads-api.reddit.com/docs/v3/api/create-ad-group), [Update Campaign](https://ads-api.reddit.com/docs/v3/api/update-campaign), [List Funding Instruments](https://ads-api.reddit.com/docs/v3/api/list-funding-instruments). v2 is sunset except CAPI.
+Public docs used (read-only, 2026-11-08): [Reddit Advertising API v3](https://ads-api.reddit.com/docs/v3/api/reddit-advertising-api), [Create Campaign](https://ads-api.reddit.com/docs/v3/api/create-campaign), [Create Ad Group](https://ads-api.reddit.com/docs/v3/api/create-ad-group), [Create Ad](https://ads-api.reddit.com/docs/v3/api/create-ad), [Get a Structured Post](https://ads-api.reddit.com/docs/v3/api/get-a-structured-post), [Update Campaign](https://ads-api.reddit.com/docs/v3/api/update-campaign), [List Funding Instruments](https://ads-api.reddit.com/docs/v3/api/list-funding-instruments). v2 is sunset except CAPI.
 
 ### Operational
 
@@ -115,13 +116,23 @@ REDDIT_CONVERSION_PIXEL_ID=t2_…
 
 Workspace rows still require a ready `ads.provider_accounts` mapping for that Reddit account. Commands that name a different `providerAccountId` are refused. Pause/resume/update GET the remote campaign and refuse if `ad_account_id` is not the configured account. Cross-provider transfers are not implemented.
 
-`landingPageUrl` is the request argument (fixture `https://example.test/offer` in tests). It is stored on the Proba campaign. Reddit `click_url` is **ad-level**; this slice does not create ads, posts, or creatives, so the URL is **not** pushed to Reddit as a destination. No SmallSeed/marketing URL is defaulted.
+`landingPageUrl` is the request argument (fixture `https://example.test/offer` in tests). It is stored on the Proba campaign. No SmallSeed/marketing URL is defaulted. Reddit `click_url` is **ad-level**. On a deliverable create this process sends **that exact string** as `click_url` on `POST /ad_accounts/{id}/ads`. Campaign/ad-group without an ad is **not** a launch.
 
-**Create semantics (scaffold, not a launch).** A successful `ads.create_campaign` on Reddit is a **campaign + ad-group scaffold** only. It is **not** a deliverable ad, not a creative, and not a destination `click_url`. The HTTP result sets `providerLaunch: campaign_ad_group_scaffold`, `deliverableAd: false`, `clickUrlPushed: false`, `missingProviderEntities: [ad, creative, click_url]`. Local campaign status stays `draft`. Preflight `running` is true only when a `providerAdId` exists. Do not treat `ok: true` as a runnable campaign launch.
+**Create semantics (deliverable ad, or honest scaffold).** `ads.create_campaign` is claimed as a launch only when Reddit returns an ad id after:
 
-**Remaining contract to actually launch:** Reddit Ad + Creative (or Structured Post) with `click_url` = the user-entered landing URL, plus any required targeting/schedule. Those inputs are **not** in the current Ads create args and are **not** invented here. Gateway/Hub URL capture remains upstream.
+1. Input validation (`landingPageUrl`, `providerPostId` `t3_…`, protocol `researchAcceptance`, `goalId`).
+2. Pixel + research + post id present locally (**zero POST** if any is missing).
+3. `GET /structured_posts/{post_id}` succeeds. 404/timeout on this GET is `provider_prerequisites_missing`, **not** ambiguous, and **no campaign is sent**. Ads does **not** create posts (official create-post needs `profile_id` + media, which this process does not invent).
+4. Verified eligible billing (funding instruments).
+5. `POST` campaign → ad group (`conversion_pixel_id`) → ad (`post_id`, `click_url` = exact `landingPageUrl`).
 
-**Mandatory create prerequisite:** `REDDIT_CONVERSION_PIXEL_ID` (valid pixel id). As of 2026-07-13 this is required on **all** ad groups. Missing or invalid pixel → `provider_prerequisites_missing` **before any POST/PATCH**. Pause/resume may run without a pixel. Process start still allows enablement without a pixel so pause-only operators are not blocked.
+HTTP result then sets `providerLaunch: deliverable_ad`, `deliverableAd: true`, `clickUrlPushed: true`. Local status becomes `active`. Audit action is `campaign.launched`. Preflight `running` is true only when a `providerAdId` exists.
+
+If campaign/ad-group POST succeeded but ad create 4xx’d, the mapping is a **scaffold**: `providerLaunch: campaign_ad_group_scaffold`, `deliverableAd: false`, `clickUrlPushed: false`, `missingProviderEntities` includes `ad`/`click_url`, local status stays `draft`, audit is `campaign.created`. Timeout/5xx on campaign/ad-group/**ad** POST is `outcome_ambiguous` and is not retried as success.
+
+`researchAcceptance` is a well-formed protocol binding only. Ads does **not** call Hub and does **not** prove the artifact was accepted there.
+
+**Mandatory create prerequisites (all fail closed before mutation):** `REDDIT_CONVERSION_PIXEL_ID` (valid pixel id; required on **all** ad groups since 2026-07-13), caller `landingPageUrl`, `providerPostId`, `researchAcceptance`, `goalId`, ready account mapping, verified eligible billing. Missing/invalid pixel or post → `provider_prerequisites_missing` **before any POST/PATCH**. Pause/resume may run without a pixel. Process start still allows enablement without a pixel so pause-only operators are not blocked.
 
 Create/resume/spend-increase still require a **verified eligible** billing claim. Pause may skip ad-balance only. `/health` and `/ready` still do not query Reddit billing.
 
@@ -139,9 +150,10 @@ Create/resume/spend-increase still require a **verified eligible** billing claim
 
 ### Mutations (v3)
 
-- Create (only after pixel + billing eligibility): `POST /ad_accounts/{id}/campaigns` with `objective=CLICKS`, `configured_status=ACTIVE`, `funding_instrument_id` from a servable instrument. Then `POST .../ad_groups` with `type=MANUAL`, `goal_type=DAILY_SPEND`, `goal_value` in **microcurrency** (`major * 1_000_000`), `bid_type=CPC`, `bid_strategy=BIDLESS`, `conversion_pixel_id` from config. Campaign-budget-optimization is **not** used. The result is still only a scaffold (no ad/creative/`click_url`).
+- Create (only after pixel + post GET + research + billing eligibility): `POST /ad_accounts/{id}/campaigns` with `objective=CLICKS`, `configured_status=ACTIVE`, `funding_instrument_id` from a servable instrument. Then `POST .../ad_groups` with `type=MANUAL`, `goal_type=DAILY_SPEND`, `goal_value` in **microcurrency** (`major * 1_000_000`), `bid_type=CPC`, `bid_strategy=BIDLESS`, `conversion_pixel_id` from config. Then `POST .../ads` with `ad_group_id`, `post_id`, and `click_url` equal to the caller `landingPageUrl`. Campaign-budget-optimization is **not** used.
 - Pause/resume: `PATCH /campaigns/{id}` `configured_status` `PAUSED`/`ACTIVE` after a GET ownership check. Pause does **not** query funding instruments.
 - Daily budget update: `PATCH /ad_groups/{id}` `goal_value` micros. Name-only updates skip an empty campaign PATCH. Refused if no ad-group mapping.
+- Landing URL update: `PATCH /ads/{id}` `click_url` only when `providerAdId` is mapped. Scaffold campaigns without an ad id are refused (`provider_prerequisites_missing`); the URL is not claimed as pushed.
 - 429: `provider_rate_limited`, **no retry**.
 - Timeout / 5xx on POST/PATCH: `outcome_ambiguous`, persisted, not retried as success.
 - Certain 4xx on ad-group create after a campaign id was returned: campaign mapping is persisted (so a retry does not create a second campaign); `providerAdGroupId` stays unset and remote daily budget is **not** claimed.
@@ -156,10 +168,21 @@ Create/resume/spend-increase still require a **verified eligible** billing claim
 - Default User-Agent is `web:proba-ads:0.1.0 (internal Ads domain; no public user)`. Reddit asks for `platform:app:version (by /u/username)`. Operators should set `REDDIT_USER_AGENT` with a real Reddit username; this process will not invent one.
 - No OAuth refresh; operators rotate `REDDIT_ACCESS_TOKEN_FILE`. Token expiry is 401 fail-closed.
 - Microsoft/Google/Meta remain unconfigured.
-- Protocol Zod 4 is a **separate** workstream; this PR does not override zod.
+- Protocol Zod 4 is paired with released `v0.6.0`; this PR does not override zod.
 - Gateway “accepted artifact” guard and Hub/web destination URL capture remain **upstream**. This slice does not claim a built operator UI.
+- Ads does **not** create Reddit structured posts (`profile_id` + media are not in Ads args and are not invented). Missing `providerPostId` or GET 404 is fail-closed.
+- Targeting, schedule, and special ad categories are omitted from create bodies. Reddit may 400; that is refused, not spoofed as success.
+- `researchAcceptance` is not a Hub round-trip. A well-formed binding can still be a lie relative to Hub state.
 
-Tests inject `ScriptedHttpTransport`. CI and local tests must not call `ads-api.reddit.com`.
+Tests inject `ScriptedHttpTransport`. CI and local tests must not call `ads-api.reddit.com`. No live ad spend.
+
+### Remaining Task 5 gaps
+
+- Live Reddit E2E is **not** claimed. Default adapter stays unconfigured.
+- Post/creative **creation** (profile + media upload) is out of this process.
+- Hub research-acceptance verification and operator URL capture remain other repos.
+- Targeting/schedule/GEO still omitted.
+- Microsoft/Google/Meta remain unconfigured.
 
 ## 6. Reddit analytics (Task 6 — read-only)
 

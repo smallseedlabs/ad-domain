@@ -5,7 +5,15 @@ import { ServiceTokenAuth } from '../auth/service-token.js';
 import { SystemClock } from '../ports/clock.js';
 import { UnconfiguredProvider } from '../providers/unconfigured.js';
 import { MemoryStore } from '../store/memory.js';
-import { testConfig, FIXTURE_LANDING_PAGE_URL, FIXTURE_TRACE_ID, FIXTURE_USER_ID, FIXTURE_WORKSPACE } from '../testing/config.js';
+import {
+  testConfig,
+  fixtureCreateArgs,
+  FIXTURE_GOAL_ID,
+  FIXTURE_LANDING_PAGE_URL,
+  FIXTURE_TRACE_ID,
+  FIXTURE_USER_ID,
+  FIXTURE_WORKSPACE,
+} from '../testing/config.js';
 import { createTestSigner, mintGatewayToken } from '../testing/token-signer.js';
 import { buildApp } from './app.js';
 import { createLogger } from '../logger.js';
@@ -87,7 +95,7 @@ describe('HTTP contract [fake-store] [unit]', () => {
     });
     expect(missingUrl.statusCode).toBe(400);
 
-    const created = await app.inject({
+    const incompleteLaunch = await app.inject({
       method: 'POST',
       url: '/v1/campaign-actions',
       headers: { authorization: `Bearer ${token}`, 'idempotency-key': randomUUID() },
@@ -103,6 +111,21 @@ describe('HTTP contract [fake-store] [unit]', () => {
           currency: 'USD',
           platform: 'reddit',
         },
+      },
+    });
+    expect(incompleteLaunch.statusCode).toBe(400);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/campaign-actions',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': randomUUID() },
+      payload: {
+        traceId: FIXTURE_TRACE_ID,
+        workspaceId: FIXTURE_WORKSPACE,
+        userId: FIXTURE_USER_ID,
+        goalId: FIXTURE_GOAL_ID,
+        verb: 'ads.create_campaign',
+        args: fixtureCreateArgs({ name: 'x', dailyBudget: 10 }),
       },
     });
     expect(created.statusCode).toBe(200);

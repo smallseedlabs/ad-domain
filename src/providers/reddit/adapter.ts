@@ -22,6 +22,12 @@ const SCAFFOLD_MAPPING = {
   missingEntities: ['ad', 'creative', 'click_url'] as const,
 };
 
+const DELIVERABLE_MAPPING = {
+  launchKind: 'deliverable_ad' as const,
+  deliverableAd: true,
+  clickUrlPushed: true,
+};
+
 function idOf(data: Record<string, unknown> | undefined): string | undefined {
   const id = data?.id;
   return typeof id === 'string' && id.length > 0 ? id : undefined;
@@ -297,6 +303,8 @@ export class RedditAdsAdapter implements ProviderAdapter {
   private async create(command: ProviderCommand): Promise<ProviderOutcome> {
     const pixelId = redditConversionPixelId(this.reddit.conversionPixelId);
     const prerequisite = redditCreatePrerequisiteError(this.reddit);
+    const landingPageUrl = command.landingPageUrl ?? command.args.landingPageUrl;
+    const postId = command.args.providerPostId;
     if (prerequisite || !pixelId) {
       return {
         kind: 'refused',
@@ -304,6 +312,45 @@ export class RedditAdsAdapter implements ProviderAdapter {
         message: prerequisite ?? 'REDDIT_CONVERSION_PIXEL_ID is required before creating a Reddit campaign or ad group. No remote create was sent.',
       };
     }
+    if (!landingPageUrl) {
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message: 'landingPageUrl is required before Reddit ad create; no default destination is applied. No remote create was sent.',
+      };
+    }
+    if (!command.args.researchAcceptance) {
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message:
+          'researchAcceptance is required before create. Ads does not call Hub and does not treat missing research as accepted. No remote create was sent.',
+      };
+    }
+    if (!postId) {
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message:
+          'providerPostId (existing Reddit structured post t3_…) is required before create. Ads does not create posts or invent creative media/profile_id. No remote create was sent.',
+      };
+    }
+
+    const post = await this.client.getStructuredPost(postId);
+    if (post.kind !== 'ok') {
+      if (post.kind === 'rate_limited') {
+        return { kind: 'refused', code: 'provider_rate_limited', message: post.message };
+      }
+      if (post.kind === 'unauthorized') {
+        return { kind: 'refused', code: 'provider_unauthorized', message: post.message };
+      }
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message: `Reddit structured post ${postId} was not retrievable before create (${post.kind}: ${post.message}). Ads does not create posts. No campaign was sent.`,
+      };
+    }
+
     const funding = await this.client.listFundingInstruments(this.reddit.adAccountId);
     if (funding.kind !== 'ok') {
       if (funding.kind === 'rate_limited') {
@@ -381,14 +428,64 @@ export class RedditAdsAdapter implements ProviderAdapter {
       // 4xx on ad group: campaign exists; persist campaign mapping and note missing ad group rather than claiming a live ad.
     }
 
+    if (!adGroupId) {
+      return {
+        kind: 'success',
+        mapping: {
+          provider: 'reddit',
+          providerCampaignId: campaignId,
+          providerAccountId: this.reddit.adAccountId,
+          ...SCAFFOLD_MAPPING,
+          missingEntities: ['ad_group', 'ad', 'creative', 'click_url'],
+        },
+      };
+    }
+
+    const ad = await this.client.createAd(this.reddit.adAccountId, {
+      ad_group_id: adGroupId,
+      name: command.args.name,
+      post_id: postId,
+      click_url: landingPageUrl,
+      configured_status: 'ACTIVE',
+    });
+    if (ad.kind !== 'ok') {
+      if (ad.kind === 'ambiguous' || ad.kind === 'timeout') {
+        return {
+          kind: 'ambiguous',
+          code: 'outcome_ambiguous',
+          message: `Reddit campaign ${campaignId} and ad group ${adGroupId} may exist; ad create outcome is uncertain: ${ad.message}`,
+        };
+      }
+      return {
+        kind: 'success',
+        mapping: {
+          provider: 'reddit',
+          providerCampaignId: campaignId,
+          providerAdGroupId: adGroupId,
+          providerAccountId: this.reddit.adAccountId,
+          ...SCAFFOLD_MAPPING,
+          missingEntities: ['ad', 'click_url'],
+        },
+      };
+    }
+    const adId = idOf(ad.data);
+    if (!adId) {
+      return {
+        kind: 'ambiguous',
+        code: 'outcome_ambiguous',
+        message: `Reddit accepted ad create for campaign ${campaignId} but returned no ad id`,
+      };
+    }
+
     return {
       kind: 'success',
       mapping: {
         provider: 'reddit',
         providerCampaignId: campaignId,
         providerAdGroupId: adGroupId,
+        providerAdId: adId,
         providerAccountId: this.reddit.adAccountId,
-        ...SCAFFOLD_MAPPING,
+        ...DELIVERABLE_MAPPING,
       },
     };
   }
@@ -422,6 +519,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
         provider: 'reddit',
         providerCampaignId: owned.id,
         providerAdGroupId: command.providerAdGroupId,
+        providerAdId: command.providerAdId,
         providerAccountId: this.reddit.adAccountId,
       },
     };
@@ -460,12 +558,18 @@ export class RedditAdsAdapter implements ProviderAdapter {
       }
     }
     if (command.args.landingPageUrl) {
-      return {
-        kind: 'refused',
-        code: 'provider_prerequisites_missing',
-        message:
-          'Reddit click_url is an ad-level field; this slice does not create or patch ads/creatives, so landingPageUrl cannot be pushed. Campaign/ad-group scaffold only.',
-      };
+      if (!command.providerAdId) {
+        return {
+          kind: 'refused',
+          code: 'provider_prerequisites_missing',
+          message:
+            'Reddit click_url is an ad-level field; this campaign has no providerAdId so landingPageUrl cannot be pushed. Not claimed as a launch.',
+        };
+      }
+      const patched = await this.client.updateAd(command.providerAdId, { click_url: command.args.landingPageUrl });
+      if (patched.kind !== 'ok') {
+        return httpKindToOutcome(patched.kind, patched.message) ?? { kind: 'refused', code: 'provider_refused', message: patched.message };
+      }
     }
     return {
       kind: 'success',
@@ -473,7 +577,11 @@ export class RedditAdsAdapter implements ProviderAdapter {
         provider: 'reddit',
         providerCampaignId: owned.id,
         providerAdGroupId: command.providerAdGroupId,
+        providerAdId: command.providerAdId,
         providerAccountId: this.reddit.adAccountId,
+        ...(command.providerAdId && command.args.landingPageUrl
+          ? { launchKind: 'deliverable_ad' as const, deliverableAd: true, clickUrlPushed: true }
+          : {}),
       },
     };
   }

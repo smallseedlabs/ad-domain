@@ -33,6 +33,13 @@
         "fetchedAt",
         "revision"
       ]
+    },
+    "ResearchAcceptanceBinding": {
+      "required": [
+        "artifactId",
+        "version",
+        "inputRevision"
+      ]
     }
   }
 }

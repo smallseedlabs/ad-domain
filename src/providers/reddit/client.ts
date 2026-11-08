@@ -158,6 +158,18 @@ export class RedditAdsClient {
     return this.send<Record<string, unknown>>('PATCH', `/ad_groups/${encodeURIComponent(adGroupId)}`, { data });
   }
 
+  getStructuredPost(postId: string) {
+    return this.send<Record<string, unknown>>('GET', `/structured_posts/${encodeURIComponent(postId)}`);
+  }
+
+  createAd(adAccountId: string, data: Record<string, unknown>) {
+    return this.send<Record<string, unknown>>('POST', `/ad_accounts/${encodeURIComponent(adAccountId)}/ads`, { data });
+  }
+
+  updateAd(adId: string, data: Record<string, unknown>) {
+    return this.send<Record<string, unknown>>('PATCH', `/ads/${encodeURIComponent(adId)}`, { data });
+  }
+
   /**
    * Official read-only Get a Report. POST is the documented method; this is not a campaign mutation.
    * Timeouts/5xx are unavailable, not ambiguous campaign outcomes.

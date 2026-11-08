@@ -18,7 +18,7 @@ Gateway-only caller. Expected overlay hostname `ads`, port **3800**. Protocol au
 
 Unauthorized requests are rejected before domain work.
 
-`landingPageUrl` is a **request argument**. This service validates the string that arrived (http/https, no credentials, max length) and stores that exact value. It does **not** default, prefill, or fetch a destination. Upstream Hub/web/portal currently have no URL field and no research→create contract; a later integration should pass the user-entered URL into `args.landingPageUrl`. Until then, a present URL is not a validated user fact.
+`landingPageUrl` is a **request argument**. This service validates the string that arrived (http/https, no credentials, max length) and stores that exact value. It does **not** default, prefill, or fetch a destination. On a Reddit **deliverable ad** create, that same string is sent as ad-level `click_url`. Campaign/ad-group scaffold without an ad is **not** a launch. Upstream Hub/web/portal currently have no URL field and no research→create contract; a later integration should pass the user-entered URL into `args.landingPageUrl`. Until then, a present URL is not a validated user fact. Create also requires `goalId`, a protocol `researchAcceptance` binding, and an existing Reddit `providerPostId` (`t3_…`). Ads does not create posts and does not call Hub to prove acceptance.
 
 Provider adapters live in this process. The default is **unconfigured**. The Reddit v3 adapter is registered only when enabled with an ad account and token file; it talks to Reddit only through an injected HTTP transport (tests never open `ads-api.reddit.com`). Microsoft/Google/Meta stay unconfigured. Test fakes exist only in `NODE_ENV=test` when injected.
 

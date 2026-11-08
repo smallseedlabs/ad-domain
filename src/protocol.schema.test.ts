@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SystemClock } from './ports/clock.js';
 import { adsAuditEvent } from './audit/emit.js';
-import { validateMetricObservation } from './protocol.js';
+import { researchAcceptanceBindingSchema, validateMetricObservation } from './protocol.js';
 import { FIXTURE_TRACE_ID, FIXTURE_WORKSPACE } from './testing/config.js';
 
 const require = createRequire(import.meta.url);
@@ -96,5 +96,12 @@ describe('protocol JSON Schema consumer fixture [unit]', () => {
       revision: 0,
     });
     expect(observation.success).toBe(true);
+
+    const binding = researchAcceptanceBindingSchema.safeParse({
+      artifactId: '33333333-3333-4333-8333-333333333333',
+      version: 1,
+      inputRevision: 'rev-1',
+    });
+    expect(binding.success).toBe(true);
   });
 });
