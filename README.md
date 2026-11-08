@@ -2,7 +2,7 @@
 
 Internal Ads domain HTTP service for Proba campaign identity, mapping, and fail-closed provider modules.
 
-Internal Node 22.12+ / Fastify 5 / Vitest 5 service. It is **not** an end-to-end launch path: operator UI has no destination URL field, and provider adapters are unconfigured until a later Reddit-adapter task. Zod remains 3.x until `proba-protocol` ships a Zod 4 release (see `docs/CONFIGURATION_AND_LIMITATIONS.md`).
+Internal Node 22.12+ / Fastify 5 / Vitest 5 service. Reddit Ads API v3 can be enabled **explicitly** (`REDDIT_ADS_ENABLED`); otherwise the process stays on `UnconfiguredProvider`. Operator UI still has no destination URL field — `landingPageUrl` is a request argument only. Zod remains 3.x until `proba-protocol` ships a Zod 4 release (see `docs/CONFIGURATION_AND_LIMITATIONS.md`).
 
 ## What this process is
 
@@ -19,7 +19,7 @@ Unauthorized requests are rejected before domain work.
 
 `landingPageUrl` is a **request argument**. This service validates the string that arrived (http/https, no credentials, max length) and stores that exact value. It does **not** default, prefill, or fetch a destination. Upstream Hub/web/portal currently have no URL field and no research→create contract; a later integration should pass the user-entered URL into `args.landingPageUrl`. Until then, a present URL is not a validated user fact.
 
-Provider adapters (Reddit/Microsoft/Google/Meta) are modules behind this domain. They are **unconfigured** in this slice. Mutations fail closed with `provider_unconfigured` and never report provider success. Test fakes exist only in `NODE_ENV=test` when injected.
+Provider adapters live in this process. The default is **unconfigured**. The Reddit v3 adapter is registered only when enabled with an ad account and token file; it talks to Reddit only through an injected HTTP transport (tests never open `ads-api.reddit.com`). Microsoft/Google/Meta stay unconfigured. Test fakes exist only in `NODE_ENV=test` when injected.
 
 ## Local run (no live ads)
 
@@ -55,6 +55,7 @@ NODE_ENV=development \
 | Label | Command | Backing |
 | --- | --- | --- |
 | `[unit]` / `[fake-store]` / `[fake-provider]` | `npm test` | in-process MemoryStore, UnconfiguredProvider or injected FakeProvider. No network, no ad spend. |
+| `[injected-http]` | included in `npm test` | `ScriptedHttpTransport` Reddit adapter. Never opens `ads-api.reddit.com`. |
 | `[real-pg]` | `npm run test:integration` with `ADS_TEST_DATABASE_URL` | isolated Postgres schema `ads` |
 | `[real-redis]` | same, with `ADS_TEST_REDIS_URL` | Redis `XADD` to a test stream |
 

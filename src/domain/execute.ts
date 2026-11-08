@@ -12,7 +12,7 @@ import {
 } from '../errors.js';
 import type { Clock } from '../ports/clock.js';
 import type { VerifiedCaller } from '../ports/auth.js';
-import type { ProviderAdapter } from '../providers/port.js';
+import type { ProviderAdapter, ProviderMapping } from '../providers/port.js';
 import type { AdsStore, AdsTx, CampaignRecord, CommandRecord } from '../store/port.js';
 import { requestFingerprint } from '../store/fingerprint.js';
 import type { AdsServiceConfig } from '../types/config.js';
@@ -41,7 +41,8 @@ function fail(code: string, message: string): Extract<AdsDomainResult, { ok: fal
   return { ok: false, code, message };
 }
 
-function mappingOf(row: CampaignRecord): AdsDomainResult {
+function mappingOf(row: CampaignRecord, mapping?: ProviderMapping): AdsDomainResult {
+  const scaffold = mapping?.launchKind === 'campaign_ad_group_scaffold' || mapping?.deliverableAd === false;
   return {
     ok: true,
     data: {
@@ -60,6 +61,14 @@ function mappingOf(row: CampaignRecord): AdsDomainResult {
               },
             ]
           : [],
+      ...(scaffold
+        ? {
+            providerLaunch: 'campaign_ad_group_scaffold',
+            deliverableAd: false,
+            clickUrlPushed: false,
+            missingProviderEntities: mapping?.missingEntities ?? ['ad', 'creative', 'click_url'],
+          }
+        : {}),
     },
   };
 }
@@ -85,6 +94,7 @@ async function requireAccount(tx: AdsTx, workspaceId: string, args: ParsedAdsArg
 interface PreparedCommand {
   campaign: CampaignRecord;
   args: ParsedAdsArgs;
+  providerAccountId?: string;
 }
 
 const inProcessClaims = new Map<string, Promise<AdsDomainResult>>();
@@ -202,7 +212,7 @@ async function executeOnce(
     let campaign: CampaignRecord;
     try {
       if (args.verb === 'ads.create_campaign') {
-        await requireAccount(tx, request.workspaceId, args, args.platform!);
+        const account = await requireAccount(tx, request.workspaceId, args, args.platform!);
         campaign = {
           workspaceId: request.workspaceId,
           probaCampaignId: randomUUID(),
@@ -216,6 +226,7 @@ async function executeOnce(
           status: 'draft',
           version: 1,
           lockCommandKey: idempotencyKey,
+          providerAccountId: account.accountId,
         };
         await tx.insertCampaign(campaign);
       } else {
@@ -253,7 +264,10 @@ async function executeOnce(
       })
     );
     await tx.markInFlight(request.workspaceId, idempotencyKey, campaign.probaCampaignId);
-    return { kind: 'dispatch' as const, prepared: { campaign, args } satisfies PreparedCommand };
+    return {
+      kind: 'dispatch' as const,
+      prepared: { campaign, args, providerAccountId: campaign.providerAccountId } satisfies PreparedCommand,
+    };
   });
 
   if (prepared.kind === 'replay' || prepared.kind === 'done') return prepared.result;
@@ -267,6 +281,9 @@ async function executeOnce(
     platform: campaign.platform,
     probaCampaignId: campaign.probaCampaignId,
     landingPageUrl: parsed.landingPageUrl ?? campaign.landingPageUrl,
+    providerAccountId: prepared.prepared.providerAccountId ?? campaign.providerAccountId,
+    providerCampaignId: campaign.providerCampaignId,
+    providerAdGroupId: campaign.providerAdGroupId,
   });
 
   return deps.store.withTransaction(async (tx) => {
@@ -342,7 +359,11 @@ async function executeOnce(
       return result;
     }
 
-    const nextStatus = parsed.verb === 'ads.pause_campaign' ? 'paused' : 'active';
+    const scaffoldOnly =
+      parsed.verb === 'ads.create_campaign' &&
+      (outcome.mapping.launchKind === 'campaign_ad_group_scaffold' || outcome.mapping.deliverableAd === false);
+    const nextStatus =
+      parsed.verb === 'ads.pause_campaign' ? 'paused' : scaffoldOnly ? 'draft' : 'active';
     const campaignAction =
       parsed.verb === 'ads.create_campaign'
         ? 'campaign.created'
@@ -368,7 +389,7 @@ async function executeOnce(
       reconcile: null,
     });
     if (!updated) throw new StaleVersionError();
-    const result = mappingOf(updated);
+    const result = mappingOf(updated, outcome.mapping);
     await tx.completeCommand({
       workspaceId: request.workspaceId,
       idempotencyKey,
@@ -391,6 +412,13 @@ async function executeOnce(
           version: updated.version,
           platform: updated.platform,
           landingPageUrlLength: updated.landingPageUrl.length,
+          ...(scaffoldOnly
+            ? {
+                providerLaunch: 'campaign_ad_group_scaffold',
+                deliverableAd: false,
+                clickUrlPushed: false,
+              }
+            : {}),
         },
       })
     );
