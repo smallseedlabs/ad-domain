@@ -1,5 +1,6 @@
 import type { AdPlatform } from '../types/http.js';
 import type { AdsBillingClaim } from '../types/preflight.js';
+import type { MetricsFetchOutcome, MetricsFetchQuery } from './metrics.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from './port.js';
 
 export type FakeMutateBehavior = 'success' | 'ambiguous' | 'refuse' | 'unconfigured';
@@ -58,6 +59,14 @@ export class FakeProvider implements ProviderAdapter {
 
   async billingClaim(_workspaceId: string, _platform?: AdPlatform): Promise<AdsBillingClaim> {
     return this.billing;
+  }
+
+  async fetchCampaignMetrics(_query: MetricsFetchQuery): Promise<MetricsFetchOutcome> {
+    return {
+      kind: 'refused',
+      code: 'provider_refused',
+      message: 'fake provider does not fetch live platform metrics',
+    };
   }
 }
 

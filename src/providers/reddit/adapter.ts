@@ -1,10 +1,19 @@
 import type { AdPlatform } from '../../types/http.js';
 import type { AdsBillingClaim } from '../../types/preflight.js';
 import type { HttpTransport } from '../http.js';
+import type { MetricsFetchOutcome, MetricsFetchQuery } from '../metrics.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from '../port.js';
 import { RedditAdsClient, type RedditHttpKind } from './client.js';
-import { redditConversionPixelId, redditCreatePrerequisiteError, type RedditAdsConfig } from './config.js';
+import {
+  REDDIT_REPORT_DEFAULT_MAX_PAGES,
+  REDDIT_REPORT_PAGE_SIZE,
+  redditConversionPixelId,
+  redditCreatePrerequisiteError,
+  type RedditAdsConfig,
+} from './config.js';
 import { toMicros } from './money.js';
+import { normalizeRedditMetrics, parseRedditReportPage } from './normalize-metrics.js';
+import { redditSameOrigin, toRedditHourUtc } from './time.js';
 
 const SCAFFOLD_MAPPING = {
   launchKind: 'campaign_ad_group_scaffold' as const,
@@ -171,6 +180,118 @@ export class RedditAdsAdapter implements ProviderAdapter {
     if (command.verb === 'ads.resume_campaign') return this.setStatus(command, 'ACTIVE');
     if (command.verb === 'ads.update_campaign') return this.update(command);
     return { kind: 'refused', code: 'provider_refused', message: `verb ${command.verb} is not supported by the Reddit adapter` };
+  }
+
+  /**
+   * Read-only Get a Report. Does not POST/PATCH campaigns, ad groups, or ads.
+   * Unread pagination is a failed fetch, not a verified empty window.
+   */
+  async fetchCampaignMetrics(query: MetricsFetchQuery): Promise<MetricsFetchOutcome> {
+    if (query.providerAccountId !== this.reddit.adAccountId) {
+      return {
+        kind: 'refused',
+        code: 'ownership_mismatch',
+        message: 'metrics fetch provider account does not match the configured Reddit ad account',
+      };
+    }
+    const remote = await this.client.getCampaign(query.providerCampaignId);
+    if (remote.kind !== 'ok') {
+      if (remote.kind === 'rate_limited') {
+        return { kind: 'refused', code: 'provider_rate_limited', message: remote.message };
+      }
+      if (remote.kind === 'unauthorized') {
+        return { kind: 'refused', code: 'provider_unauthorized', message: remote.message };
+      }
+      if (remote.kind === 'not_found') {
+        return { kind: 'refused', code: 'ownership_mismatch', message: remote.message };
+      }
+      return { kind: 'refused', code: 'provider_unavailable', message: remote.message };
+    }
+    const remoteAccount = accountIdOf(remote.data);
+    if (remoteAccount && remoteAccount !== this.reddit.adAccountId) {
+      return { kind: 'refused', code: 'ownership_mismatch', message: 'Reddit campaign is not in the configured ad account' };
+    }
+
+    const maxPages = query.reportMaxPages || this.reddit.reportMaxPages || REDDIT_REPORT_DEFAULT_MAX_PAGES;
+    const breakdowns = query.granularity === 'hour' ? (['CAMPAIGN_ID', 'HOUR'] as const) : (['CAMPAIGN_ID', 'DATE'] as const);
+    const timeField = query.granularity === 'hour' ? 'DATETIME' : 'DATE';
+    const first = await this.client.createReport(
+      this.reddit.adAccountId,
+      {
+        breakdowns: [...breakdowns],
+        fields: [
+          'CAMPAIGN_ID',
+          timeField,
+          'IMPRESSIONS',
+          'CLICKS',
+          'SPEND',
+          'CURRENCY',
+          'KEY_CONVERSION_TOTAL_COUNT',
+          'REACH',
+          'VIDEO_VIEWABLE_IMPRESSIONS',
+        ],
+        starts_at: toRedditHourUtc(query.periodStart),
+        ends_at: toRedditHourUtc(query.periodEnd),
+        time_zone_id: 'UTC',
+        filter: `campaign:id==${query.providerCampaignId}`,
+      },
+      REDDIT_REPORT_PAGE_SIZE
+    );
+    if (first.kind !== 'ok') {
+      if (first.kind === 'rate_limited') {
+        return { kind: 'refused', code: 'provider_rate_limited', message: first.message };
+      }
+      if (first.kind === 'unauthorized') {
+        return { kind: 'refused', code: 'provider_unauthorized', message: first.message };
+      }
+      return { kind: 'refused', code: 'provider_unavailable', message: first.message };
+    }
+
+    const pages: ReturnType<typeof parseRedditReportPage>[] = [parseRedditReportPage(first.raw, first.data)];
+    while (pages[pages.length - 1]?.nextUrl) {
+      if (pages.length >= maxPages) {
+        return {
+          kind: 'refused',
+          code: 'provider_page_limit',
+          message: `Reddit report pagination exceeded REDDIT_REPORT_MAX_PAGES=${maxPages}. Unread pages were not treated as zeros.`,
+        };
+      }
+      const nextUrl = pages[pages.length - 1]!.nextUrl!;
+      if (!redditSameOrigin(this.reddit.apiBaseUrl, nextUrl)) {
+        return {
+          kind: 'refused',
+          code: 'provider_refused',
+          message: 'Reddit pagination.next_url left the configured Ads API origin and was not followed',
+        };
+      }
+      const next = await this.client.followReportUrl(nextUrl);
+      if (next.kind !== 'ok') {
+        if (next.kind === 'rate_limited') {
+          return { kind: 'refused', code: 'provider_rate_limited', message: next.message };
+        }
+        return {
+          kind: 'refused',
+          code: 'provider_unavailable',
+          message: `Reddit report page ${pages.length + 1} failed: ${next.message}. Partial pages were not ingested as a complete window.`,
+        };
+      }
+      pages.push(parseRedditReportPage(next.raw, next.data));
+    }
+
+    const rows = pages.flatMap((page) => page.metrics);
+    const normalized = normalizeRedditMetrics(rows, {
+      accountId: this.reddit.adAccountId,
+      expectedCampaignId: query.providerCampaignId,
+      granularity: query.granularity,
+      timezone: query.timezone,
+      fetchedAt: query.fetchedAt,
+    });
+    return {
+      kind: 'ok',
+      observations: normalized.observations,
+      quarantined: normalized.quarantined,
+      pages: pages.length,
+    };
   }
 
   private async create(command: ProviderCommand): Promise<ProviderOutcome> {

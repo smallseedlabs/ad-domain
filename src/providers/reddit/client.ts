@@ -55,10 +55,16 @@ export class RedditAdsClient {
     return `${this.config.apiBaseUrl.replace(/\/$/, '')}${path}`;
   }
 
-  private async send<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<RedditHttpResult<T>> {
+  private async send<T>(
+    method: 'GET' | 'POST' | 'PATCH',
+    path: string,
+    body?: unknown,
+    options?: { mutation?: boolean; absoluteUrl?: string }
+  ): Promise<RedditHttpResult<T>> {
+    const mutation = options?.mutation ?? method !== 'GET';
     const request = {
       method,
-      url: this.url(path),
+      url: options?.absoluteUrl ?? this.url(path),
       headers: headerBag(this.config.accessToken, this.config.userAgent, body !== undefined),
       body: body === undefined ? undefined : JSON.stringify(body),
       timeoutMs: this.config.timeoutMs,
@@ -80,13 +86,13 @@ export class RedditAdsClient {
         return {
           kind: 'rate_limited',
           status: 429,
-          message: redditMessage(parsed, 'Reddit rate limit exceeded; mutation was not retried'),
+          message: redditMessage(parsed, mutation ? 'Reddit rate limit exceeded; mutation was not retried' : 'Reddit rate limit exceeded; report was not retried'),
           audit,
         };
       }
       if (response.status >= 500) {
         return {
-          kind: method === 'GET' ? 'unavailable' : 'ambiguous',
+          kind: mutation ? 'ambiguous' : 'unavailable',
           status: response.status,
           message: redditMessage(parsed, `Reddit returned HTTP ${response.status}`),
           audit,
@@ -97,7 +103,7 @@ export class RedditAdsClient {
       }
       if ((parsed as { _unparsed?: boolean })._unparsed) {
         return {
-          kind: method === 'GET' ? 'unavailable' : 'ambiguous',
+          kind: mutation ? 'ambiguous' : 'unavailable',
           status: response.status,
           message: 'Reddit response was not JSON; outcome is not claimed',
           audit,
@@ -108,13 +114,13 @@ export class RedditAdsClient {
       const audit = httpAuditSafe(request);
       if (err instanceof HttpTimeoutError) {
         return {
-          kind: method === 'GET' ? 'timeout' : 'ambiguous',
+          kind: mutation ? 'ambiguous' : 'timeout',
           message: err.message,
           audit,
         };
       }
       return {
-        kind: method === 'GET' ? 'unavailable' : 'ambiguous',
+        kind: mutation ? 'ambiguous' : 'unavailable',
         message: err instanceof Error ? err.message : 'provider HTTP failed',
         audit,
       };
@@ -150,5 +156,22 @@ export class RedditAdsClient {
 
   updateAdGroup(adGroupId: string, data: Record<string, unknown>) {
     return this.send<Record<string, unknown>>('PATCH', `/ad_groups/${encodeURIComponent(adGroupId)}`, { data });
+  }
+
+  /**
+   * Official read-only Get a Report. POST is the documented method; this is not a campaign mutation.
+   * Timeouts/5xx are unavailable, not ambiguous campaign outcomes.
+   */
+  createReport(adAccountId: string, data: Record<string, unknown>, pageSize: number) {
+    return this.send<unknown>(
+      'POST',
+      `/ad_accounts/${encodeURIComponent(adAccountId)}/reports?page.size=${pageSize}`,
+      { data },
+      { mutation: false }
+    );
+  }
+
+  followReportUrl(absoluteUrl: string) {
+    return this.send<unknown>('GET', '/', undefined, { mutation: false, absoluteUrl });
   }
 }

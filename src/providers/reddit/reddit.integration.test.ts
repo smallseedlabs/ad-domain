@@ -3,6 +3,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AmbiguousOutcomeError } from '../../errors.js';
 import { SystemClock } from '../../ports/clock.js';
+import { executeMetricsFetch } from '../../domain/analytics.js';
 import { executeCampaignAction } from '../../domain/execute.js';
 import { runMigrations } from '../../db/migrate.js';
 import { PostgresStore } from '../../store/postgres.js';
@@ -181,5 +182,103 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
         key
       )
     ).rejects.toBeInstanceOf(AmbiguousOutcomeError);
+  });
+
+  it('writes metrics.ingested to the outbox without changing campaign rows [real-pg]', async () => {
+    const ws = `ws-metrics-${randomUUID()}`;
+    const probaCampaignId = randomUUID();
+    await store.withTransaction(async (tx) => {
+      await tx.upsertAccount({ workspaceId: ws, platform: 'reddit', accountId: ACCOUNT, status: 'ready' });
+      await tx.insertCampaign({
+        workspaceId: ws,
+        probaCampaignId,
+        userId: FIXTURE_USER_ID,
+        name: 'metrics-pg',
+        landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+        dailyBudget: 12,
+        currency: 'USD',
+        platform: 'reddit',
+        status: 'draft',
+        version: 1,
+        provider: 'reddit',
+        providerAccountId: ACCOUNT,
+        providerCampaignId: 'cmp_metrics_pg',
+      });
+    });
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: { id: 'cmp_metrics_pg', ad_account_id: ACCOUNT } } },
+      {
+        status: 200,
+        body: {
+          data: {
+            metrics: [
+              {
+                campaign_id: 'cmp_metrics_pg',
+                DATE: '2026-11-01',
+                IMPRESSIONS: 4,
+                CLICKS: 1,
+                SPEND: 1_000_000,
+                CURRENCY: 'USD',
+                KEY_CONVERSION_TOTAL_COUNT: 0,
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    const provider = new RedditAdsAdapter(
+      {
+        enabled: true,
+        adAccountId: ACCOUNT,
+        accessToken: 'test-token-not-real',
+        apiBaseUrl: REDDIT_ADS_API_BASE,
+        timeoutMs: 1_000,
+        userAgent: 'proba-ads-test',
+        conversionPixelId: PIXEL,
+      },
+      http
+    );
+    const fetched = await executeMetricsFetch(
+      { config: testConfig(), store, provider, clock: new SystemClock() },
+      {
+        traceId: FIXTURE_TRACE_ID,
+        workspaceId: ws,
+        userId: FIXTURE_USER_ID,
+        probaCampaignId,
+        periodStart: '2026-11-01T00:00:00.000Z',
+        periodEnd: '2026-11-02T00:00:00.000Z',
+        granularity: 'day',
+      },
+      {
+        issuer: 'proba-gateway',
+        subject: 'gateway',
+        jti: randomUUID(),
+        keyId: 'k',
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+      randomUUID()
+    );
+    expect(fetched.ok).toBe(true);
+    const locked = await store.withTransaction((tx) => tx.getCampaign(ws, probaCampaignId));
+    expect(locked?.status).toBe('draft');
+    expect(locked?.version).toBe(1);
+    expect(http.calls.every((call) => call.method !== 'PATCH')).toBe(true);
+
+    const bus = new MemoryAuditPublisher();
+    const relay = new OutboxRelay({
+      store,
+      bus,
+      logger: createLogger('silent'),
+      batchSize: 50,
+      pollIntervalMs: 50,
+      leaseMs: 5_000,
+    });
+    let found = false;
+    for (let i = 0; i < 20; i++) {
+      await relay.runOnce();
+      found = bus.events.some((e) => e.action === 'metrics.ingested' && e.campaignId === probaCampaignId);
+      if (found) break;
+    }
+    expect(found).toBe(true);
   });
 });

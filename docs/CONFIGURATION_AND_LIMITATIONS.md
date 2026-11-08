@@ -41,7 +41,7 @@ Audit: domain writes and `ads.audit_outbox` share a transaction. Relay `XADD`s p
 - Operator/portal destination URL field, protocol `create_goal` URL, research→sourced findings→user validation→create. Those are absent upstream. **Minimal future hook:** pass the user-entered URL as gateway tool arg `landingPageUrl` (already the Ads request field). Do not invent a research schema here.
 - `workspaceId` on gateway-minted Ads tokens (compatible additive claim).
 - Workload/workspace spend meshes, `$2` model caps, live automation delegation.
-- Analytics bot.
+- Analytics bot / Hub query UI. This slice can **fetch** Reddit reports into protocol `MetricObservation`s and emit them on the existing audit outbox (`POST /v1/metrics-fetch`). It does not store a metrics table, run the audit ingester, or expose a query UI.
 
 ## 3. npm audit (this checkout)
 
@@ -118,6 +118,7 @@ REDDIT_CONVERSION_PIXEL_ID=t2_…
 # REDDIT_ADS_API_BASE_URL=https://ads-api.reddit.com/api/v3
 # REDDIT_HTTP_TIMEOUT_MS=10000
 # REDDIT_USER_AGENT=web:proba-ads:0.1.0 (by /u/your_reddit_username)
+# REDDIT_REPORT_MAX_PAGES=10
 ```
 
 Workspace rows still require a ready `ads.provider_accounts` mapping for that Reddit account. Commands that name a different `providerAccountId` are refused. Pause/resume/update GET the remote campaign and refuse if `ad_account_id` is not the configured account. Cross-provider transfers are not implemented.
@@ -167,3 +168,31 @@ Create/resume/spend-increase still require a **verified eligible** billing claim
 - Gateway “accepted artifact” guard and Hub/web destination URL capture remain **upstream**. This slice does not claim a built operator UI.
 
 Tests inject `ScriptedHttpTransport`. CI and local tests must not call `ads-api.reddit.com`.
+
+## 6. Reddit analytics (Task 6 — read-only)
+
+Official [Get a Report](https://ads-api.reddit.com/docs/v3/api/get-a-report) (`POST /ad_accounts/{id}/reports`, policy `ads-reporting`). This is a **read**. It does not create, pause, resume, or patch campaigns/ad groups/ads. Billing is not queried.
+
+`POST /v1/metrics-fetch` (gateway JWT + `Idempotency-Key`) loads the workspace/user/account/campaign mapping, `GET`s the remote campaign for ownership, then requests the report. Results are normalised with `validateMetricObservation` and written to `ads.audit_outbox` as protocol actions `metrics.fetch_started`, `metrics.ingested`, `campaign.metrics_attributed`, `metrics.fetch_completed` (or `metrics.fetch_failed`). Relay still `XADD`s `proba.audit.events`. There is **no** Ads metrics table and **no** second bus.
+
+| Mapping | Protocol `MetricObservation` |
+| --- | --- |
+| `IMPRESSIONS` / `CLICKS` | required ints; **null → quarantine, never 0** |
+| `SPEND` | divide by **1e6** (official microcurrency) |
+| `KEY_CONVERSION_TOTAL_COUNT` | required protocol `conversions`. Reddit field is **nullable**. Null/absent is quarantined with that prerequisite; **not** stored as 0 |
+| `CURRENCY` | ISO 4217 length 3; missing quarantined |
+| `DATE` / `DATETIME` | UTC day or hour bounds (`timezone: UTC` only in this slice) |
+| `REACH` / `VIDEO_VIEWABLE_IMPRESSIONS` | optional; omitted when absent |
+| `pagination.next_url` | followed only on the configured Ads API origin, cap `REDDIT_REPORT_MAX_PAGES` (default 10). Over-cap / off-origin / mid-window page failure → fetch **fails**; unread pages are **not** zeros |
+
+`filter=campaign:id=={mapped}`. Rows for any other `campaign_id` are quarantined. `time_zone_id=UTC` always. Non-UTC request timezone is refused so period bounds are not guessed.
+
+Campaign status/budget/mappings are not updated. Command ledger verb is `ads.fetch_metrics` (separate from `/v1/campaign-actions`).
+
+### Remaining gaps
+
+- Protocol `MetricValues.conversions` is required; Reddit conversion metrics are nullable. Rows without `KEY_CONVERSION_TOTAL_COUNT` cannot become observations.
+- Non-UTC Reddit reporting timezones are not mapped (local-midnight math not invented here).
+- Hour windows longer than 7 days and day windows longer than 31 days are refused.
+- Ads does not persist observations in Postgres; the durable copy is the audit stream for proba-audit/ClickHouse.
+- Live Reddit E2E is **not** claimed. Microsoft/Google/Meta analytics are unconfigured.

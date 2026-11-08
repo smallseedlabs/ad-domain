@@ -12,7 +12,12 @@ export interface RedditAdsConfig {
   timeoutMs: number;
   userAgent: string;
   conversionPixelId?: string;
+  /** Cap on Reddit report pagination.next_url follows. Unread pages fail closed (not zeros). */
+  reportMaxPages?: number;
 }
+
+export const REDDIT_REPORT_DEFAULT_MAX_PAGES = 10;
+export const REDDIT_REPORT_PAGE_SIZE = 100;
 
 export function redditConversionPixelId(raw: string | undefined): string | undefined {
   const value = (raw ?? '').trim();

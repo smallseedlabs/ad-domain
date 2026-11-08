@@ -1,5 +1,6 @@
 import type { AdPlatform } from '../types/http.js';
 import type { AdsBillingClaim } from '../types/preflight.js';
+import type { MetricsFetchOutcome, MetricsFetchQuery } from './metrics.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from './port.js';
 
 /**
@@ -38,6 +39,14 @@ export class UnconfiguredProvider implements ProviderAdapter {
       kind: 'unknown',
       reason:
         'provider billing cannot be queried; adapters are unconfigured. This is not a verified zero or nonzero balance',
+    };
+  }
+
+  async fetchCampaignMetrics(_query: MetricsFetchQuery): Promise<MetricsFetchOutcome> {
+    return {
+      kind: 'unconfigured',
+      message:
+        'No provider adapter is configured. Metrics were not fetched and no campaign mutation was attempted.',
     };
   }
 }

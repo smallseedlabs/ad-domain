@@ -1,6 +1,7 @@
 import type { AdPlatform } from '../types/http.js';
 import type { AdsBillingClaim } from '../types/preflight.js';
 import type { ParsedAdsArgs } from '../domain/verbs.js';
+import type { MetricsFetchOutcome, MetricsFetchQuery } from './metrics.js';
 
 export interface ProviderMapping {
   provider: AdPlatform;
@@ -50,4 +51,6 @@ export interface ProviderAdapter {
     message?: string;
   }>;
   billingClaim(workspaceId: string, platform?: AdPlatform): Promise<AdsBillingClaim>;
+  /** Read-only metrics pull. Must not create/pause/resume/update campaigns. */
+  fetchCampaignMetrics(query: MetricsFetchQuery): Promise<MetricsFetchOutcome>;
 }

@@ -8,6 +8,8 @@ export type {
   AuditContent,
   AuditEvent,
   AuditEventInput,
+  MetricObservation,
+  MetricValues,
 } from '@smallseedlabs/proba-protocol';
 
 export {
@@ -19,5 +21,7 @@ export {
   buildAuditEvent,
   generateSpanId,
   getAuditActionInfo,
+  isMetricObservation,
   validateAuditEvent,
+  validateMetricObservation,
 } from '@smallseedlabs/proba-protocol';

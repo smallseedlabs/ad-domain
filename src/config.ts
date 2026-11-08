@@ -92,6 +92,7 @@ function loadRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServi
     timeoutMs: envInt(env, 'REDDIT_HTTP_TIMEOUT_MS', 10_000, 500, 60_000),
     userAgent: (env.REDDIT_USER_AGENT ?? REDDIT_USER_AGENT).trim() || REDDIT_USER_AGENT,
     conversionPixelId,
+    reportMaxPages: envInt(env, 'REDDIT_REPORT_MAX_PAGES', 10, 1, 50),
   };
 }
 
