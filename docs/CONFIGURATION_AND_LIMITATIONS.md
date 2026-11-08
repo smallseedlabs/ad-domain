@@ -112,16 +112,23 @@ Public docs used (read-only, 2026-11-08): [Reddit Advertising API v3](https://ad
 REDDIT_ADS_ENABLED=true
 REDDIT_AD_ACCOUNT_ID=a2_…
 REDDIT_ACCESS_TOKEN_FILE=/run/secrets/reddit_access_token
+# required before any create (all ad groups since 2026-07-13):
+REDDIT_CONVERSION_PIXEL_ID=t2_…
 # optional:
 # REDDIT_ADS_API_BASE_URL=https://ads-api.reddit.com/api/v3
 # REDDIT_HTTP_TIMEOUT_MS=10000
-# REDDIT_CONVERSION_PIXEL_ID=t2_…
 # REDDIT_USER_AGENT=web:proba-ads:0.1.0 (by /u/your_reddit_username)
 ```
 
 Workspace rows still require a ready `ads.provider_accounts` mapping for that Reddit account. Commands that name a different `providerAccountId` are refused. Pause/resume/update GET the remote campaign and refuse if `ad_account_id` is not the configured account. Cross-provider transfers are not implemented.
 
 `landingPageUrl` is the request argument (fixture `https://example.test/offer` in tests). It is stored on the Proba campaign. Reddit `click_url` is **ad-level**; this slice does not create ads, posts, or creatives, so the URL is **not** pushed to Reddit as a destination. No SmallSeed/marketing URL is defaulted.
+
+**Create semantics (scaffold, not a launch).** A successful `ads.create_campaign` on Reddit is a **campaign + ad-group scaffold** only. It is **not** a deliverable ad, not a creative, and not a destination `click_url`. The HTTP result sets `providerLaunch: campaign_ad_group_scaffold`, `deliverableAd: false`, `clickUrlPushed: false`, `missingProviderEntities: [ad, creative, click_url]`. Local campaign status stays `draft`. Preflight `running` is true only when a `providerAdId` exists. Do not treat `ok: true` as a runnable campaign launch.
+
+**Remaining contract to actually launch:** Reddit Ad + Creative (or Structured Post) with `click_url` = the user-entered landing URL, plus any required targeting/schedule. Those inputs are **not** in the current Ads create args and are **not** invented here. Gateway/Hub URL capture remains upstream.
+
+**Mandatory create prerequisite:** `REDDIT_CONVERSION_PIXEL_ID` (valid pixel id). As of 2026-07-13 this is required on **all** ad groups. Missing or invalid pixel → `provider_prerequisites_missing` **before any POST/PATCH**. Pause/resume may run without a pixel. Process start still allows enablement without a pixel so pause-only operators are not blocked.
 
 Create/resume/spend-increase still require a **verified eligible** billing claim. Pause may skip ad-balance only. `/health` and `/ready` still do not query Reddit billing.
 
@@ -139,7 +146,7 @@ Create/resume/spend-increase still require a **verified eligible** billing claim
 
 ### Mutations (v3)
 
-- Create: `POST /ad_accounts/{id}/campaigns` with `objective=CLICKS`, `configured_status=ACTIVE`, `funding_instrument_id` from a servable instrument. Then `POST .../ad_groups` with `type=MANUAL`, `goal_type=DAILY_SPEND`, `goal_value` in **microcurrency** (`major * 1_000_000`), `bid_type=CPC`, `bid_strategy=BIDLESS`. Campaign-budget-optimization is **not** used (CBO also requires `conversion_pixel_id` and start_time).
+- Create (only after pixel + billing eligibility): `POST /ad_accounts/{id}/campaigns` with `objective=CLICKS`, `configured_status=ACTIVE`, `funding_instrument_id` from a servable instrument. Then `POST .../ad_groups` with `type=MANUAL`, `goal_type=DAILY_SPEND`, `goal_value` in **microcurrency** (`major * 1_000_000`), `bid_type=CPC`, `bid_strategy=BIDLESS`, `conversion_pixel_id` from config. Campaign-budget-optimization is **not** used. The result is still only a scaffold (no ad/creative/`click_url`).
 - Pause/resume: `PATCH /campaigns/{id}` `configured_status` `PAUSED`/`ACTIVE` after a GET ownership check. Pause does **not** query funding instruments.
 - Daily budget update: `PATCH /ad_groups/{id}` `goal_value` micros. Name-only updates skip an empty campaign PATCH. Refused if no ad-group mapping.
 - 429: `provider_rate_limited`, **no retry**.
@@ -151,7 +158,7 @@ Create/resume/spend-increase still require a **verified eligible** billing claim
 - Ad account ids look like `a2_…` / `t2_…` per docs. Not re-validated beyond “configured string matches command mapping”.
 - Minimal create body omits targeting/schedule/special ad categories. Reddit may 400; that is refused, not spoofed as success.
 - Funding-instrument 404 is treated as **unknown billing**, because we cannot prove the account has no funds.
-- As of 2026-07-13, official Create Ad Group docs require `conversion_pixel_id` for **all** ad groups. This process sends it only when `REDDIT_CONVERSION_PIXEL_ID` is set. Without it, live ad-group create is expected to 400; that is documented, not faked as a live ad.
+- As of 2026-07-13, official Create Ad Group docs require `conversion_pixel_id` for **all** ad groups. Missing/invalid `REDDIT_CONVERSION_PIXEL_ID` fails **before** any create POST. This process does **not** POST a campaign and then treat an expected 400 as documentation.
 - Create Ad Group’s example `goal_value: 75` disagrees with the field text (“microcurrency for monetary goal types”). This adapter sends micros (`12` → `12000000`). Live 400 on that field is refused, not retried as success.
 - Default User-Agent is `web:proba-ads:0.1.0 (internal Ads domain; no public user)`. Reddit asks for `platform:app:version (by /u/username)`. Operators should set `REDDIT_USER_AGENT` with a real Reddit username; this process will not invent one.
 - No OAuth refresh; operators rotate `REDDIT_ACCESS_TOKEN_FILE`. Token expiry is 401 fail-closed.

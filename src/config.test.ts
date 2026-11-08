@@ -33,5 +33,15 @@ describe('config [unit]', () => {
     });
     expect(on.reddit.enabled).toBe(true);
     if (on.reddit.enabled) expect(on.reddit.adAccountId).toBe('a2_test');
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'test',
+        AUDIT_PUBLISHER: 'log',
+        REDDIT_ADS_ENABLED: 'true',
+        REDDIT_AD_ACCOUNT_ID: 'a2_test',
+        REDDIT_ACCESS_TOKEN: 'test-token-not-real',
+        REDDIT_CONVERSION_PIXEL_ID: 'not a pixel',
+      })
+    ).toThrow(ConfigError);
   });
 });

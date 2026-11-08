@@ -10,6 +10,7 @@ import { testConfig, FIXTURE_LANDING_PAGE_URL, FIXTURE_TRACE_ID, FIXTURE_USER_ID
 import { executeCampaignAction } from './execute.js';
 
 const ACCOUNT = 'a2_testaccount';
+const PIXEL = 't2_testpixel';
 
 function caller() {
   return {
@@ -58,6 +59,7 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
         apiBaseUrl: REDDIT_ADS_API_BASE,
         timeoutMs: 1_000,
         userAgent: 'proba-ads-test',
+        conversionPixelId: PIXEL,
       },
       http
     );
@@ -70,11 +72,48 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.landingPageUrl).toBe(FIXTURE_LANDING_PAGE_URL);
+    expect(result.data.providerLaunch).toBe('campaign_ad_group_scaffold');
+    expect(result.data.deliverableAd).toBe(false);
+    expect(result.data.clickUrlPushed).toBe(false);
     expect(result.data.mappings?.[0]).toMatchObject({
       provider: 'reddit',
       providerCampaignId: 'cmp_exec',
       providerAdGroupId: 'grp_exec',
     });
+  });
+
+  it('refuses create without posting when conversion pixel is missing [zero-mutation]', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+    ]);
+    const store = new MemoryStore();
+    await store.withTransaction((tx) =>
+      tx.upsertAccount({ workspaceId: FIXTURE_WORKSPACE, platform: 'reddit', accountId: ACCOUNT, status: 'ready' })
+    );
+    const provider = new RedditAdsAdapter(
+      {
+        enabled: true,
+        adAccountId: ACCOUNT,
+        accessToken: 'test-token-not-real',
+        apiBaseUrl: REDDIT_ADS_API_BASE,
+        timeoutMs: 1_000,
+        userAgent: 'proba-ads-test',
+      },
+      http
+    );
+    const result = await executeCampaignAction(
+      { config: testConfig(), store, provider, clock: new SystemClock() },
+      createReq(),
+      caller(),
+      randomUUID()
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('provider_prerequisites_missing');
+    expect(http.calls.every((call) => call.method === 'GET')).toBe(true);
+    expect(http.calls.some((call) => call.method === 'POST' || call.method === 'PATCH')).toBe(false);
+    for (const campaign of store.campaigns.values()) {
+      expect(campaign.providerCampaignId).toBeUndefined();
+    }
   });
 
   it('persists ambiguous outcome on provider timeout and refuses replay', async () => {
@@ -95,6 +134,7 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
         apiBaseUrl: REDDIT_ADS_API_BASE,
         timeoutMs: 1_000,
         userAgent: 'proba-ads-test',
+        conversionPixelId: PIXEL,
       },
       http
     );

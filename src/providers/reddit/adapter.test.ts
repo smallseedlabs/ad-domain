@@ -7,8 +7,9 @@ import type { ProviderCommand } from '../port.js';
 import { FIXTURE_LANDING_PAGE_URL, FIXTURE_USER_ID, FIXTURE_WORKSPACE } from '../../testing/config.js';
 
 const ACCOUNT = 'a2_testaccount';
+const PIXEL = 't2_testpixel';
 
-function redditConfig(): RedditAdsConfig {
+function redditConfig(overrides: Partial<RedditAdsConfig> = {}): RedditAdsConfig {
   return {
     enabled: true,
     adAccountId: ACCOUNT,
@@ -16,7 +17,13 @@ function redditConfig(): RedditAdsConfig {
     apiBaseUrl: REDDIT_ADS_API_BASE,
     timeoutMs: 1_000,
     userAgent: 'proba-ads-test',
+    conversionPixelId: PIXEL,
+    ...overrides,
   };
+}
+
+function mutationCalls(http: ScriptedHttpTransport) {
+  return http.calls.filter((call) => call.method === 'POST' || call.method === 'PATCH');
 }
 
 function createCommand(overrides: Partial<ProviderCommand> = {}): ProviderCommand {
@@ -89,6 +96,10 @@ describe('RedditAdsAdapter [injected-http]', () => {
         providerCampaignId: 'cmp_1',
         providerAdGroupId: 'grp_1',
         providerAccountId: ACCOUNT,
+        launchKind: 'campaign_ad_group_scaffold',
+        deliverableAd: false,
+        clickUrlPushed: false,
+        missingEntities: ['ad', 'creative', 'click_url'],
       },
     });
     const createBody = JSON.parse(http.calls[1]!.body ?? '{}') as { data: { objective: string; name: string } };
@@ -98,9 +109,28 @@ describe('RedditAdsAdapter [injected-http]', () => {
     };
     expect(groupBody.data.goal_type).toBe('DAILY_SPEND');
     expect(groupBody.data.bid_type).toBe('CPC');
-    expect(groupBody.data.conversion_pixel_id).toBeUndefined();
+    expect(groupBody.data.conversion_pixel_id).toBe(PIXEL);
     expect(JSON.stringify(http.calls)).not.toContain('smallseedlabs.com');
     expect(http.calls[0]!.headers.authorization).toBe('Bearer test-token-not-real');
+  });
+
+  it('refuses create before any remote mutation when conversion_pixel_id is missing', async () => {
+    const http = new ScriptedHttpTransport([{ status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } }]);
+    const adapter = new RedditAdsAdapter(redditConfig({ conversionPixelId: undefined }), http);
+    const result = await adapter.mutate(createCommand());
+    expect(result.kind).toBe('refused');
+    if (result.kind === 'refused') expect(result.code).toBe('provider_prerequisites_missing');
+    expect(mutationCalls(http)).toHaveLength(0);
+    expect(http.calls).toHaveLength(0);
+  });
+
+  it('refuses create before any remote mutation when conversion_pixel_id is invalid', async () => {
+    const http = new ScriptedHttpTransport([]);
+    const adapter = new RedditAdsAdapter(redditConfig({ conversionPixelId: 'not a pixel' }), http);
+    const result = await adapter.mutate(createCommand());
+    expect(result.kind).toBe('refused');
+    if (result.kind === 'refused') expect(result.code).toBe('provider_prerequisites_missing');
+    expect(http.calls).toHaveLength(0);
   });
 
   it('refuses a mapped account that is not the configured Reddit account', async () => {

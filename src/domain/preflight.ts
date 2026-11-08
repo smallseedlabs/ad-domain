@@ -42,9 +42,11 @@ export async function buildPreflightReport(input: {
         state: campaign.providerCampaignId ? 'ready' : 'missing',
         probaCampaignId: campaign.probaCampaignId,
         mapped: Boolean(campaign.providerCampaignId),
-        running: campaign.status === 'active',
+        running: campaign.status === 'active' && Boolean(campaign.providerAdId),
         message: campaign.providerCampaignId
-          ? 'campaign blueprint is mapped in this workspace'
+          ? campaign.providerAdId
+            ? 'campaign blueprint is mapped in this workspace'
+            : 'campaign/ad-group scaffold is mapped; no deliverable ad or click_url has been created'
           : 'campaign exists in this workspace but is not mapped to a provider resource',
       };
     }

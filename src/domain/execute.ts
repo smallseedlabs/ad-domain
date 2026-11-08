@@ -12,7 +12,7 @@ import {
 } from '../errors.js';
 import type { Clock } from '../ports/clock.js';
 import type { VerifiedCaller } from '../ports/auth.js';
-import type { ProviderAdapter } from '../providers/port.js';
+import type { ProviderAdapter, ProviderMapping } from '../providers/port.js';
 import type { AdsStore, AdsTx, CampaignRecord, CommandRecord } from '../store/port.js';
 import { requestFingerprint } from '../store/fingerprint.js';
 import type { AdsServiceConfig } from '../types/config.js';
@@ -41,7 +41,8 @@ function fail(code: string, message: string): Extract<AdsDomainResult, { ok: fal
   return { ok: false, code, message };
 }
 
-function mappingOf(row: CampaignRecord): AdsDomainResult {
+function mappingOf(row: CampaignRecord, mapping?: ProviderMapping): AdsDomainResult {
+  const scaffold = mapping?.launchKind === 'campaign_ad_group_scaffold' || mapping?.deliverableAd === false;
   return {
     ok: true,
     data: {
@@ -60,6 +61,14 @@ function mappingOf(row: CampaignRecord): AdsDomainResult {
               },
             ]
           : [],
+      ...(scaffold
+        ? {
+            providerLaunch: 'campaign_ad_group_scaffold',
+            deliverableAd: false,
+            clickUrlPushed: false,
+            missingProviderEntities: mapping?.missingEntities ?? ['ad', 'creative', 'click_url'],
+          }
+        : {}),
     },
   };
 }
@@ -350,7 +359,11 @@ async function executeOnce(
       return result;
     }
 
-    const nextStatus = parsed.verb === 'ads.pause_campaign' ? 'paused' : 'active';
+    const scaffoldOnly =
+      parsed.verb === 'ads.create_campaign' &&
+      (outcome.mapping.launchKind === 'campaign_ad_group_scaffold' || outcome.mapping.deliverableAd === false);
+    const nextStatus =
+      parsed.verb === 'ads.pause_campaign' ? 'paused' : scaffoldOnly ? 'draft' : 'active';
     const campaignAction =
       parsed.verb === 'ads.create_campaign'
         ? 'campaign.created'
@@ -376,7 +389,7 @@ async function executeOnce(
       reconcile: null,
     });
     if (!updated) throw new StaleVersionError();
-    const result = mappingOf(updated);
+    const result = mappingOf(updated, outcome.mapping);
     await tx.completeCommand({
       workspaceId: request.workspaceId,
       idempotencyKey,
@@ -399,6 +412,13 @@ async function executeOnce(
           version: updated.version,
           platform: updated.platform,
           landingPageUrlLength: updated.landingPageUrl.length,
+          ...(scaffoldOnly
+            ? {
+                providerLaunch: 'campaign_ad_group_scaffold',
+                deliverableAd: false,
+                clickUrlPushed: false,
+              }
+            : {}),
         },
       })
     );

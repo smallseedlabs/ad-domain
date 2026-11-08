@@ -16,6 +16,7 @@ import { REDDIT_ADS_API_BASE } from './config.js';
 import { ScriptedHttpTransport } from '../scripted-http.js';
 
 const ACCOUNT = 'a2_pg_reddit';
+const PIXEL = 't2_testpixel';
 
 describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [injected-http]', () => {
   const url = realPostgresUrl()!;
@@ -51,6 +52,7 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
         apiBaseUrl: REDDIT_ADS_API_BASE,
         timeoutMs: 1_000,
         userAgent: 'proba-ads-test',
+        conversionPixelId: PIXEL,
       },
       http
     );
@@ -82,6 +84,8 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(created.data.landingPageUrl).toBe(FIXTURE_LANDING_PAGE_URL);
+    expect(created.data.providerLaunch).toBe('campaign_ad_group_scaffold');
+    expect(created.data.deliverableAd).toBe(false);
     expect(created.data.mappings?.[0]?.providerCampaignId).toBe('cmp_pg');
 
     const bus = new MemoryAuditPublisher();
@@ -116,6 +120,7 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
         apiBaseUrl: REDDIT_ADS_API_BASE,
         timeoutMs: 1_000,
         userAgent: 'proba-ads-test',
+        conversionPixelId: PIXEL,
       },
       timeoutHttp
     );

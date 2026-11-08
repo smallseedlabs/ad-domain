@@ -3,8 +3,15 @@ import type { AdsBillingClaim } from '../../types/preflight.js';
 import type { HttpTransport } from '../http.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from '../port.js';
 import { RedditAdsClient, type RedditHttpKind } from './client.js';
-import type { RedditAdsConfig } from './config.js';
+import { redditConversionPixelId, redditCreatePrerequisiteError, type RedditAdsConfig } from './config.js';
 import { toMicros } from './money.js';
+
+const SCAFFOLD_MAPPING = {
+  launchKind: 'campaign_ad_group_scaffold' as const,
+  deliverableAd: false,
+  clickUrlPushed: false,
+  missingEntities: ['ad', 'creative', 'click_url'] as const,
+};
 
 function idOf(data: Record<string, unknown> | undefined): string | undefined {
   const id = data?.id;
@@ -167,6 +174,15 @@ export class RedditAdsAdapter implements ProviderAdapter {
   }
 
   private async create(command: ProviderCommand): Promise<ProviderOutcome> {
+    const pixelId = redditConversionPixelId(this.reddit.conversionPixelId);
+    const prerequisite = redditCreatePrerequisiteError(this.reddit);
+    if (prerequisite || !pixelId) {
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message: prerequisite ?? 'REDDIT_CONVERSION_PIXEL_ID is required before creating a Reddit campaign or ad group. No remote create was sent.',
+      };
+    }
     const funding = await this.client.listFundingInstruments(this.reddit.adAccountId);
     if (funding.kind !== 'ok') {
       if (funding.kind === 'rate_limited') {
@@ -230,7 +246,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
         bid_type: 'CPC',
         bid_strategy: 'BIDLESS',
         bid_value: null,
-        ...(this.reddit.conversionPixelId ? { conversion_pixel_id: this.reddit.conversionPixelId } : {}),
+        conversion_pixel_id: pixelId,
       });
       if (group.kind === 'ok') {
         adGroupId = idOf(group.data);
@@ -251,6 +267,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
         providerCampaignId: campaignId,
         providerAdGroupId: adGroupId,
         providerAccountId: this.reddit.adAccountId,
+        ...SCAFFOLD_MAPPING,
       },
     };
   }
@@ -321,12 +338,12 @@ export class RedditAdsAdapter implements ProviderAdapter {
         return httpKindToOutcome(group.kind, group.message) ?? { kind: 'refused', code: 'provider_refused', message: group.message };
       }
     }
-    if (command.args.landingPageUrl && command.args.landingPageUrl !== command.landingPageUrl) {
+    if (command.args.landingPageUrl) {
       return {
         kind: 'refused',
-        code: 'provider_refused',
+        code: 'provider_prerequisites_missing',
         message:
-          'Reddit click_url is an ad-level field; this slice does not create or patch ads/creatives. landingPageUrl is stored on the Proba campaign only.',
+          'Reddit click_url is an ad-level field; this slice does not create or patch ads/creatives, so landingPageUrl cannot be pushed. Campaign/ad-group scaffold only.',
       };
     }
     return {

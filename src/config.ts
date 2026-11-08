@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { ConfigError } from './errors.js';
 import { DEFAULT_CALLER_ISSUERS, DEFAULT_CALLER_SUBJECTS } from './auth/constants.js';
-import { REDDIT_ADS_API_BASE, REDDIT_USER_AGENT } from './providers/reddit/config.js';
+import { REDDIT_ADS_API_BASE, REDDIT_USER_AGENT, redditConversionPixelId } from './providers/reddit/config.js';
 import type { AdsServiceConfig, AuditPublisherKind, RuntimeEnv } from './types/config.js';
 
 function envBool(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
@@ -80,7 +80,10 @@ function loadRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServi
   if (!apiBaseUrl.startsWith('https://') && nodeEnv === 'production') {
     throw new ConfigError('REDDIT_ADS_API_BASE_URL must be https in production');
   }
-  const conversionPixelId = (env.REDDIT_CONVERSION_PIXEL_ID ?? '').trim() || undefined;
+  const conversionPixelId = redditConversionPixelId(env.REDDIT_CONVERSION_PIXEL_ID);
+  if ((env.REDDIT_CONVERSION_PIXEL_ID ?? '').trim() && !conversionPixelId) {
+    throw new ConfigError('REDDIT_CONVERSION_PIXEL_ID is set but is not a valid Reddit pixel id');
+  }
   return {
     enabled: true,
     adAccountId,

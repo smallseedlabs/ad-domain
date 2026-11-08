@@ -8,6 +8,11 @@ export interface ProviderMapping {
   providerAdGroupId?: string;
   providerAdId?: string;
   providerAccountId?: string;
+  /** Present when the adapter created only campaign/ad-group entities, not a deliverable ad. */
+  launchKind?: 'campaign_ad_group_scaffold';
+  deliverableAd?: boolean;
+  clickUrlPushed?: boolean;
+  missingEntities?: readonly string[];
 }
 
 export type ProviderOutcome =
