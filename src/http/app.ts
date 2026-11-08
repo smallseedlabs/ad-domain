@@ -11,8 +11,9 @@ import type { Logger } from '../logger.js';
 import { adsAuditEvent } from '../audit/emit.js';
 import type { AuditPublisher } from '../ports/audit-publisher.js';
 import { ADS_SERVICE_NAME } from '../types/config.js';
-import { campaignActionRequestSchema, preflightRequestSchema, type AdsDomainResult } from '../types/http.js';
+import { campaignActionRequestSchema, metricsFetchRequestSchema, preflightRequestSchema, type AdsDomainResult } from '../types/http.js';
 import { executeCampaignAction, type ExecuteDeps } from '../domain/execute.js';
+import { executeMetricsFetch } from '../domain/analytics.js';
 import { buildPreflightReport } from '../domain/preflight.js';
 import { adsPreflightReportSchema } from '../types/preflight.js';
 import { SlidingWindowRateLimiter } from './rate-limit.js';
@@ -159,6 +160,47 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         return reply.status(200).send({ ok: false, code: err.code, message: err.message } satisfies AdsDomainResult);
       }
       deps.logger.error({ err: err instanceof Error ? err.name : 'error', traceId: body.traceId }, 'campaign action failed');
+      return reply.status(500).send(errorBody('internal', 'internal error'));
+    }
+  });
+
+  app.post('/v1/metrics-fetch', async (request, reply) => {
+    const callerOrReply = await authenticate(deps, request, reply);
+    if (!('issuer' in callerOrReply)) return callerOrReply;
+    const caller = callerOrReply;
+    if (!limiter.allow(`${caller.issuer}\n${caller.subject}`)) {
+      return reply.status(429).send(errorBody('rate_limited', 'caller exceeded the request rate limit'));
+    }
+    const parsed = metricsFetchRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send(errorBody('invalid_request', parsed.error.issues[0]?.message ?? 'invalid request'));
+    }
+    const body = parsed.data;
+    const headerKey = header(request, 'idempotency-key');
+    const idempotencyKey = headerKey ?? body.idempotencyKey;
+    if (!idempotencyKey) {
+      return reply.status(400).send(errorBody('invalid_request', 'Idempotency-Key is required'));
+    }
+    if (body.idempotencyKey && body.idempotencyKey !== idempotencyKey) {
+      return reply.status(400).send(errorBody('invalid_request', 'Idempotency-Key header does not match body.idempotencyKey'));
+    }
+    try {
+      const result: AdsDomainResult = await executeMetricsFetch(deps, body, caller, idempotencyKey);
+      return reply.status(200).send(result);
+    } catch (err) {
+      if (err instanceof RequestValidationError) {
+        return reply.status(400).send(errorBody(err.code, err.message));
+      }
+      if (err instanceof WorkspaceScopeError) {
+        return deny(deps, request, reply, 403, err.code, err.message, body.workspaceId);
+      }
+      if (err instanceof IdempotencyConflictError) {
+        return reply.status(409).send(errorBody(err.code, err.message));
+      }
+      if (err instanceof AmbiguousOutcomeError) {
+        return reply.status(200).send({ ok: false, code: err.code, message: err.message } satisfies AdsDomainResult);
+      }
+      deps.logger.error({ err: err instanceof Error ? err.name : 'error', traceId: body.traceId }, 'metrics fetch failed');
       return reply.status(500).send(errorBody('internal', 'internal error'));
     }
   });

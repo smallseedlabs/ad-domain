@@ -5,7 +5,15 @@ import { ServiceTokenAuth } from '../auth/service-token.js';
 import { SystemClock } from '../ports/clock.js';
 import { UnconfiguredProvider } from '../providers/unconfigured.js';
 import { MemoryStore } from '../store/memory.js';
-import { testConfig, FIXTURE_LANDING_PAGE_URL, FIXTURE_TRACE_ID, FIXTURE_USER_ID, FIXTURE_WORKSPACE } from '../testing/config.js';
+import {
+  testConfig,
+  fixtureCreateArgs,
+  FIXTURE_GOAL_ID,
+  FIXTURE_LANDING_PAGE_URL,
+  FIXTURE_TRACE_ID,
+  FIXTURE_USER_ID,
+  FIXTURE_WORKSPACE,
+} from '../testing/config.js';
 import { createTestSigner, mintGatewayToken } from '../testing/token-signer.js';
 import { buildApp } from './app.js';
 import { createLogger } from '../logger.js';
@@ -87,7 +95,7 @@ describe('HTTP contract [fake-store] [unit]', () => {
     });
     expect(missingUrl.statusCode).toBe(400);
 
-    const created = await app.inject({
+    const incompleteLaunch = await app.inject({
       method: 'POST',
       url: '/v1/campaign-actions',
       headers: { authorization: `Bearer ${token}`, 'idempotency-key': randomUUID() },
@@ -105,8 +113,50 @@ describe('HTTP contract [fake-store] [unit]', () => {
         },
       },
     });
+    expect(incompleteLaunch.statusCode).toBe(400);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/campaign-actions',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': randomUUID() },
+      payload: {
+        traceId: FIXTURE_TRACE_ID,
+        workspaceId: FIXTURE_WORKSPACE,
+        userId: FIXTURE_USER_ID,
+        goalId: FIXTURE_GOAL_ID,
+        verb: 'ads.create_campaign',
+        args: fixtureCreateArgs({ name: 'x', dailyBudget: 10 }),
+      },
+    });
     expect(created.statusCode).toBe(200);
     expect(created.json()).toMatchObject({ ok: false, code: 'provider_unconfigured' });
+  });
+
+  it('rejects unauthorized metrics fetch before work', async () => {
+    const { app } = await harness();
+    const res = await app.inject({ method: 'POST', url: '/v1/metrics-fetch', payload: {} });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('metrics-fetch fails closed without a provider and does not mutate campaigns', async () => {
+    const { app, signer, store } = await harness();
+    const token = await mintGatewayToken(signer);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/metrics-fetch',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': randomUUID() },
+      payload: {
+        traceId: FIXTURE_TRACE_ID,
+        workspaceId: FIXTURE_WORKSPACE,
+        userId: FIXTURE_USER_ID,
+        probaCampaignId: randomUUID(),
+        periodStart: '2026-11-01T00:00:00.000Z',
+        periodEnd: '2026-11-02T00:00:00.000Z',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: false, code: 'provider_unconfigured' });
+    expect(store.campaigns.size).toBe(0);
   });
 
   it('rejects a workspace-scoped token that does not match the body', async () => {

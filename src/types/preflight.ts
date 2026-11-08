@@ -8,7 +8,7 @@ export const adsBillingClaimSchema = z
         kind: z.literal('verified'),
         mode: z.enum(['billing_eligibility', 'exact_balance']),
         eligible: z.boolean(),
-        asOf: z.string().datetime(),
+        asOf: z.iso.datetime(),
         source: z.literal('ads_domain'),
         currency: z.string().min(1).max(8).optional(),
         amount: z.number().optional(),
@@ -27,15 +27,15 @@ export const adsBillingClaimSchema = z
   ])
   .superRefine((value, ctx) => {
     if (value.kind === 'verified' && value.mode !== 'exact_balance' && value.amount !== undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'amount is only valid with exact_balance' });
+      ctx.addIssue({ code: 'custom', message: 'amount is only valid with exact_balance' });
     }
   });
 export type AdsBillingClaim = z.infer<typeof adsBillingClaimSchema>;
 
 export const adsPreflightReportSchema = z
   .object({
-    asOf: z.string().datetime(),
-    freshUntil: z.string().datetime(),
+    asOf: z.iso.datetime(),
+    freshUntil: z.iso.datetime(),
     service: z
       .object({
         state: z.enum(['ready', 'missing', 'unavailable', 'unknown']),

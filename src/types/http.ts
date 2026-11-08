@@ -17,12 +17,12 @@ export type AdsVerb = z.infer<typeof adsVerbSchema>;
 
 export const campaignActionRequestSchema = z
   .object({
-    traceId: z.string().uuid(),
+    traceId: z.uuid(),
     workspaceId: z.string().min(1).max(256),
-    userId: z.string().uuid(),
-    goalId: z.string().uuid().optional(),
+    userId: z.uuid(),
+    goalId: z.uuid().optional(),
     verb: adsVerbSchema,
-    args: z.record(z.unknown()),
+    args: z.record(z.string(), z.unknown()),
     idempotencyKey: z.string().min(1).max(128).optional(),
     decisionId: z.string().min(1).max(128).optional(),
     commandId: z.string().min(1).max(128).optional(),
@@ -33,8 +33,8 @@ export type CampaignActionRequest = z.infer<typeof campaignActionRequestSchema>;
 export const preflightRequestSchema = z
   .object({
     workspaceId: z.string().min(1).max(256),
-    userId: z.string().uuid(),
-    goalId: z.string().uuid().optional(),
+    userId: z.uuid(),
+    goalId: z.uuid().optional(),
     verb: z.string().min(1).max(128).optional(),
     platform: z.enum(AD_PLATFORMS).optional(),
     probaCampaignId: z.string().min(1).max(128).optional(),
@@ -42,6 +42,23 @@ export const preflightRequestSchema = z
   })
   .strict();
 export type PreflightRequest = z.infer<typeof preflightRequestSchema>;
+
+export const metricsFetchRequestSchema = z
+  .object({
+    traceId: z.uuid(),
+    workspaceId: z.string().min(1).max(256),
+    userId: z.uuid(),
+    goalId: z.uuid().optional(),
+    probaCampaignId: z.string().min(1).max(128),
+    periodStart: z.iso.datetime(),
+    periodEnd: z.iso.datetime(),
+    granularity: z.enum(['hour', 'day']).default('day'),
+    timezone: z.string().min(1).max(64).optional(),
+    idempotencyKey: z.string().min(1).max(128).optional(),
+    providerAccountId: z.string().min(1).max(128).optional(),
+  })
+  .strict();
+export type MetricsFetchRequest = z.infer<typeof metricsFetchRequestSchema>;
 
 export type AdsDomainResult =
   | {

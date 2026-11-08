@@ -1,6 +1,7 @@
 import type { AdPlatform } from '../types/http.js';
 import type { AdsBillingClaim } from '../types/preflight.js';
 import type { ParsedAdsArgs } from '../domain/verbs.js';
+import type { MetricsFetchOutcome, MetricsFetchQuery } from './metrics.js';
 
 export interface ProviderMapping {
   provider: AdPlatform;
@@ -8,6 +9,11 @@ export interface ProviderMapping {
   providerAdGroupId?: string;
   providerAdId?: string;
   providerAccountId?: string;
+  /** Present when the adapter created only campaign/ad-group entities, not a deliverable ad. */
+  launchKind?: 'campaign_ad_group_scaffold' | 'deliverable_ad';
+  deliverableAd?: boolean;
+  clickUrlPushed?: boolean;
+  missingEntities?: readonly string[];
 }
 
 export type ProviderOutcome =
@@ -24,6 +30,10 @@ export interface ProviderCommand {
   platform: AdPlatform;
   probaCampaignId: string;
   landingPageUrl?: string;
+  providerAccountId?: string;
+  providerCampaignId?: string;
+  providerAdGroupId?: string;
+  providerAdId?: string;
 }
 
 export interface ProviderAdapter {
@@ -42,4 +52,6 @@ export interface ProviderAdapter {
     message?: string;
   }>;
   billingClaim(workspaceId: string, platform?: AdPlatform): Promise<AdsBillingClaim>;
+  /** Read-only metrics pull. Must not create/pause/resume/update campaigns. */
+  fetchCampaignMetrics(query: MetricsFetchQuery): Promise<MetricsFetchOutcome>;
 }

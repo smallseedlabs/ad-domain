@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { RequestValidationError } from '../errors.js';
+import { researchAcceptanceBindingSchema, type ResearchAcceptanceBinding } from '../protocol.js';
 import { AD_PLATFORMS, type AdsVerb } from '../types/http.js';
 import { assertLandingPageUrl } from './url.js';
+
+const REDDIT_POST_ID = /^t3_[A-Za-z0-9][A-Za-z0-9_]{1,127}$/;
 
 export type SpendClass = 'none' | 'safety_decrease' | 'spend_increase';
 
@@ -29,6 +32,8 @@ const createArgsSchema = z
     platform: z.enum(AD_PLATFORMS),
     expectedVersion: z.number().int().positive().optional(),
     providerAccountId: z.string().min(1).max(128).optional(),
+    providerPostId: z.string().regex(REDDIT_POST_ID, 'providerPostId must be an existing Reddit post id (t3_…)'),
+    researchAcceptance: researchAcceptanceBindingSchema,
   })
   .strict();
 
@@ -61,6 +66,8 @@ export interface ParsedAdsArgs {
   probaCampaignId?: string;
   expectedVersion?: number;
   providerAccountId?: string;
+  providerPostId?: string;
+  researchAcceptance?: ResearchAcceptanceBinding;
 }
 
 export function parseVerbArgs(verb: string, raw: Record<string, unknown>): ParsedAdsArgs {
@@ -80,6 +87,8 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
       platform: parsed.data.platform,
       expectedVersion: parsed.data.expectedVersion,
       providerAccountId: parsed.data.providerAccountId,
+      providerPostId: parsed.data.providerPostId,
+      researchAcceptance: parsed.data.researchAcceptance,
     };
   }
   if (name === 'ads.update_campaign') {

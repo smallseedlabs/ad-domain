@@ -8,5 +8,8 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     testTimeout: 30_000,
     hookTimeout: 60_000,
+    // Shared isolated PG outbox; parallel files steal SKIP LOCKED rows.
+    fileParallelism: false,
+    maxWorkers: 1,
   },
 });
