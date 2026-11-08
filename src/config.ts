@@ -118,6 +118,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
   if (allowTestFakes && nodeEnv === 'production') {
     throw new ConfigError('ADS_ALLOW_TEST_FAKES is refused when NODE_ENV=production');
   }
+  const researchAcceptanceModeRaw = (env.ADS_RESEARCH_ACCEPTANCE_MODE ?? 'closed').trim().toLowerCase();
+  if (researchAcceptanceModeRaw !== 'closed' && researchAcceptanceModeRaw !== 'shape') {
+    throw new ConfigError('ADS_RESEARCH_ACCEPTANCE_MODE must be closed or shape');
+  }
+  const researchAcceptanceMode = researchAcceptanceModeRaw as 'closed' | 'shape';
+  if (nodeEnv === 'production' && researchAcceptanceMode === 'shape') {
+    throw new ConfigError(
+      'ADS_RESEARCH_ACCEPTANCE_MODE=shape is refused when NODE_ENV=production; Ads does not treat a well-formed binding as Hub-accepted'
+    );
+  }
 
   if (nodeEnv === 'production') {
     if (!databaseUrl) throw new ConfigError('DATABASE_URL or DATABASE_URL_FILE is required when NODE_ENV=production');
@@ -172,6 +182,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
       maxDailyBudget: envOptionalNumber(env, 'ADS_MAX_DAILY_BUDGET'),
       maxDailyBudgetCurrency,
       allowTestFakes,
+      researchAcceptanceMode,
     },
     reddit: loadRedditConfig(env, nodeEnv),
   };

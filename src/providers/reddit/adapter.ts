@@ -4,7 +4,9 @@ import type { HttpTransport } from '../http.js';
 import type { MetricsFetchOutcome, MetricsFetchQuery } from '../metrics.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from '../port.js';
 import { RedditAdsClient, type RedditHttpKind } from './client.js';
+import { toRedditScheduleFields, toRedditTargeting } from '../../domain/targeting.js';
 import {
+  REDDIT_POST_JOB_MAX_GETS,
   REDDIT_REPORT_DEFAULT_MAX_PAGES,
   REDDIT_REPORT_PAGE_SIZE,
   redditConversionPixelId,
@@ -13,6 +15,7 @@ import {
 } from './config.js';
 import { toMicros } from './money.js';
 import { normalizeRedditMetrics, parseRedditReportPage } from './normalize-metrics.js';
+import { jobPostId, jobStatus, toRedditStructuredPostData } from './structured-post.js';
 import { redditSameOrigin, toRedditHourUtc } from './time.js';
 
 const SCAFFOLD_MAPPING = {
@@ -304,7 +307,6 @@ export class RedditAdsAdapter implements ProviderAdapter {
     const pixelId = redditConversionPixelId(this.reddit.conversionPixelId);
     const prerequisite = redditCreatePrerequisiteError(this.reddit);
     const landingPageUrl = command.landingPageUrl ?? command.args.landingPageUrl;
-    const postId = command.args.providerPostId;
     if (prerequisite || !pixelId) {
       return {
         kind: 'refused',
@@ -327,16 +329,20 @@ export class RedditAdsAdapter implements ProviderAdapter {
           'researchAcceptance is required before create. Ads does not call Hub and does not treat missing research as accepted. No remote create was sent.',
       };
     }
-    if (!postId) {
+    if (command.platform !== 'reddit' && (command.args.creative || command.args.targeting || command.args.schedule)) {
       return {
         kind: 'refused',
-        code: 'provider_prerequisites_missing',
-        message:
-          'providerPostId (existing Reddit structured post t3_…) is required before create. Ads does not create posts or invent creative media/profile_id. No remote create was sent.',
+        code: 'ownership_mismatch',
+        message: 'creative/targeting/schedule mutations are Reddit-only; this adapter will not apply them to another provider',
       };
     }
 
-    const post = await this.client.getStructuredPost(postId);
+    const resolvedPost = await this.resolvePostId(command, landingPageUrl);
+    if (!('postId' in resolvedPost)) return resolvedPost;
+    const createdPostId = resolvedPost.postId;
+
+    const createdViaJob = !command.args.providerPostId;
+    const post = await this.client.getStructuredPost(createdPostId);
     if (post.kind !== 'ok') {
       if (post.kind === 'rate_limited') {
         return { kind: 'refused', code: 'provider_rate_limited', message: post.message };
@@ -344,10 +350,17 @@ export class RedditAdsAdapter implements ProviderAdapter {
       if (post.kind === 'unauthorized') {
         return { kind: 'refused', code: 'provider_unauthorized', message: post.message };
       }
+      if (createdViaJob && (post.kind === 'timeout' || post.kind === 'ambiguous' || post.kind === 'unavailable')) {
+        return {
+          kind: 'ambiguous',
+          code: 'outcome_ambiguous',
+          message: `Reddit structured post ${createdPostId} may exist after the creation job; GET was uncertain (${post.kind}: ${post.message}). Not retried as success. No campaign was sent.`,
+        };
+      }
       return {
         kind: 'refused',
         code: 'provider_prerequisites_missing',
-        message: `Reddit structured post ${postId} was not retrievable before create (${post.kind}: ${post.message}). Ads does not create posts. No campaign was sent.`,
+        message: `Reddit structured post ${createdPostId} was not retrievable before create (${post.kind}: ${post.message}). No campaign was sent.`,
       };
     }
 
@@ -404,6 +417,8 @@ export class RedditAdsAdapter implements ProviderAdapter {
 
     let adGroupId: string | undefined;
     if (typeof command.args.dailyBudget === 'number') {
+      const targeting = toRedditTargeting(command.args.targeting);
+      const scheduleFields = toRedditScheduleFields(command.args.schedule);
       const group = await this.client.createAdGroup(this.reddit.adAccountId, {
         type: 'MANUAL',
         name: `${command.args.name ?? 'ad-group'}`.slice(0, 200),
@@ -415,6 +430,8 @@ export class RedditAdsAdapter implements ProviderAdapter {
         bid_strategy: 'BIDLESS',
         bid_value: null,
         conversion_pixel_id: pixelId,
+        ...(targeting ? { targeting } : {}),
+        ...scheduleFields,
       });
       if (group.kind === 'ok') {
         adGroupId = idOf(group.data);
@@ -444,7 +461,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
     const ad = await this.client.createAd(this.reddit.adAccountId, {
       ad_group_id: adGroupId,
       name: command.args.name,
-      post_id: postId,
+      post_id: createdPostId,
       click_url: landingPageUrl,
       configured_status: 'ACTIVE',
     });
@@ -487,6 +504,155 @@ export class RedditAdsAdapter implements ProviderAdapter {
         providerAccountId: this.reddit.adAccountId,
         ...DELIVERABLE_MAPPING,
       },
+    };
+  }
+
+  private async resolvePostId(
+    command: ProviderCommand,
+    landingPageUrl: string
+  ): Promise<ProviderOutcome | { postId: string }> {
+    if (command.args.providerPostId) {
+      return { postId: command.args.providerPostId };
+    }
+    const creative = command.args.creative;
+    if (!creative) {
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message:
+          'creative (approved copy/media) or existing providerPostId is required. Ads will not invent a Reddit post. No remote create was sent.',
+      };
+    }
+
+    const profile = await this.resolveProfile(command.args.providerProfileId);
+    if (!('id' in profile)) return profile;
+
+    const created = await this.client.createStructuredPostJob(profile.id, toRedditStructuredPostData(creative, landingPageUrl));
+    if (created.kind !== 'ok') {
+      return httpKindToOutcome(created.kind, created.message) ?? { kind: 'refused', code: 'provider_refused', message: created.message };
+    }
+    const jobId = idOf(created.data);
+    if (!jobId) {
+      return {
+        kind: 'ambiguous',
+        code: 'outcome_ambiguous',
+        message: 'Reddit accepted structured post job create but returned no job id; not retried',
+      };
+    }
+
+    let latest = created.data;
+    for (let i = 0; i < REDDIT_POST_JOB_MAX_GETS; i++) {
+      const status = jobStatus(latest);
+      const postId = jobPostId(latest);
+      // Official POST job schema may omit post_id; GET /structured_posts/jobs/{id} is the documented source.
+      if (status === 'SUCCESS' && postId) return { postId };
+      if (status === 'SUCCESS' && !postId && i > 0) {
+        return {
+          kind: 'ambiguous',
+          code: 'outcome_ambiguous',
+          message: `Reddit structured post job ${jobId} is SUCCESS but post_id is missing; not claimed as a launch`,
+        };
+      }
+      if (status === 'CLIENT_ERROR') {
+        const err = latest?.error_message;
+        return {
+          kind: 'refused',
+          code: 'provider_refused',
+          message: `Reddit structured post job ${jobId} CLIENT_ERROR${typeof err === 'string' ? `: ${err}` : ''}. No campaign was sent.`,
+        };
+      }
+      if (status === 'SERVER_ERROR') {
+        return {
+          kind: 'ambiguous',
+          code: 'outcome_ambiguous',
+          message: `Reddit structured post job ${jobId} SERVER_ERROR; post may exist. Not retried as success.`,
+        };
+      }
+      const polled = await this.client.getStructuredPostJob(jobId);
+      if (polled.kind !== 'ok') {
+        if (polled.kind === 'rate_limited') {
+          return { kind: 'refused', code: 'provider_rate_limited', message: polled.message };
+        }
+        if (polled.kind === 'unauthorized') {
+          return { kind: 'refused', code: 'provider_unauthorized', message: polled.message };
+        }
+        if (polled.kind === 'timeout' || polled.kind === 'ambiguous') {
+          return {
+            kind: 'ambiguous',
+            code: 'outcome_ambiguous',
+            message: `Reddit structured post job ${jobId} poll is uncertain: ${polled.message}`,
+          };
+        }
+        return {
+          kind: 'refused',
+          code: 'provider_prerequisites_missing',
+          message: `Reddit structured post job ${jobId} could not be read (${polled.kind}: ${polled.message}). No campaign was sent.`,
+        };
+      }
+      latest = polled.data;
+    }
+    return {
+      kind: 'ambiguous',
+      code: 'outcome_ambiguous',
+      message: `Reddit structured post job ${jobId} still QUEUED/PROCESSING after ${REDDIT_POST_JOB_MAX_GETS} GETs; post may complete later. Not retried.`,
+    };
+  }
+
+  private async resolveProfile(requestedId: string | undefined): Promise<ProviderOutcome | { id: string }> {
+    const listed = await this.client.listProfilesByAdAccount(this.reddit.adAccountId);
+    if (listed.kind !== 'ok') {
+      if (listed.kind === 'rate_limited') {
+        return { kind: 'refused', code: 'provider_rate_limited', message: listed.message };
+      }
+      if (listed.kind === 'unauthorized') {
+        return { kind: 'refused', code: 'provider_unauthorized', message: listed.message };
+      }
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message: `Reddit profiles could not be listed for this ad account (${listed.kind}: ${listed.message}). Ads does not invent profile_id. No post job was sent.`,
+      };
+    }
+    const rows = Array.isArray(listed.data)
+      ? listed.data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+      : [];
+    const raw = listed.raw && typeof listed.raw === 'object' ? (listed.raw as { pagination?: { next_url?: unknown }; next_url?: unknown }) : undefined;
+    const pageNext = raw?.pagination?.next_url;
+    const envelopeNext = raw?.next_url;
+    const incomplete = Boolean(
+      (typeof pageNext === 'string' && pageNext.length > 0) || (typeof envelopeNext === 'string' && envelopeNext.length > 0)
+    );
+    const ids = rows.map((row) => row.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (requestedId) {
+      if (ids.includes(requestedId)) return { id: requestedId };
+      if (incomplete) {
+        return {
+          kind: 'refused',
+          code: 'provider_prerequisites_missing',
+          message:
+            'Reddit profile list was paginated and the requested providerProfileId was not on the first page. Ads does not follow profile next_url in this slice. No post job was sent.',
+        };
+      }
+      return {
+        kind: 'refused',
+        code: 'ownership_mismatch',
+        message: 'providerProfileId is not in the configured Reddit ad account profile list',
+      };
+    }
+    if (ids.length === 1) return { id: ids[0]! };
+    if (ids.length === 0) {
+      return {
+        kind: 'refused',
+        code: 'provider_prerequisites_missing',
+        message: incomplete
+          ? 'Reddit profile first page was empty with pagination continuing; profile_id is unknown, not invented'
+          : 'no Reddit profiles are listed for this ad account; Ads does not invent profile_id',
+      };
+    }
+    return {
+      kind: 'refused',
+      code: 'provider_prerequisites_missing',
+      message: 'multiple Reddit profiles are listed; pass providerProfileId. Ads will not pick one.',
     };
   }
 

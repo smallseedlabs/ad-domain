@@ -5,8 +5,11 @@ import { REDDIT_ADS_API_BASE } from './config.js';
 import type { RedditAdsConfig } from './config.js';
 import type { ProviderCommand } from '../port.js';
 import {
+  FIXTURE_CREATIVE,
   FIXTURE_LANDING_PAGE_URL,
+  FIXTURE_MEDIA_URL,
   FIXTURE_PROVIDER_POST_ID,
+  FIXTURE_PROVIDER_PROFILE_ID,
   FIXTURE_RESEARCH_ACCEPTANCE,
   FIXTURE_USER_ID,
   FIXTURE_WORKSPACE,
@@ -89,6 +92,76 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(claim).toMatchObject({ kind: 'verified', eligible: false, mode: 'billing_eligibility' });
   });
 
+  it('creates a structured post job from IMAGE creative then launches with exact click_url and targeting', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID, name: 'test' }], pagination: {} } },
+      {
+        status: 201,
+        body: { data: { id: 'job_1', status: 'QUEUED', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            id: 'job_1',
+            status: 'SUCCESS',
+            post_id: FIXTURE_PROVIDER_POST_ID,
+            error_message: null,
+            created_at: '2026-11-08T00:00:00Z',
+            modified_at: '2026-11-08T00:00:01Z',
+          },
+        },
+      },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 201, body: { data: { id: 'cmp_1', ad_account_id: ACCOUNT } } },
+      { status: 201, body: { data: { id: 'grp_1' } } },
+      { status: 201, body: { data: { id: 'ad_1', click_url: FIXTURE_LANDING_PAGE_URL } } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'probe',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          dailyBudget: 12,
+          currency: 'USD',
+          platform: 'reddit',
+          providerAccountId: ACCOUNT,
+          creative: { ...FIXTURE_CREATIVE },
+          targeting: { communities: ['aww'], platforms: ['DESKTOP'] },
+          schedule: { startTime: '2026-11-09T00:00:00.000Z', windows: [{ startDay: 1, endDay: 5, startHour: 10, endHour: 18 }] },
+          researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
+        },
+      })
+    );
+    expect(result.kind).toBe('success');
+    if (result.kind === 'success') {
+      expect(result.mapping.launchKind).toBe('deliverable_ad');
+      expect(result.mapping.providerAdId).toBe('ad_1');
+    }
+    expect(http.calls[0]!.url).toContain(`/ad_accounts/${ACCOUNT}/profiles`);
+    expect(http.calls[1]!.method).toBe('POST');
+    expect(http.calls[1]!.url).toContain(`/profiles/${FIXTURE_PROVIDER_PROFILE_ID}/structured_posts/jobs`);
+    const jobBody = JSON.parse(http.calls[1]!.body ?? '{}') as {
+      data: { creative: { type: string; destination: { url: string }; image: { media: { type: string; url: string } } } };
+    };
+    expect(jobBody.data.creative.type).toBe('IMAGE');
+    expect(jobBody.data.creative.destination.url).toBe(FIXTURE_LANDING_PAGE_URL);
+    expect(jobBody.data.creative.image.media).toEqual({ type: 'URL', url: FIXTURE_MEDIA_URL });
+    const groupBody = JSON.parse(http.calls[6]!.body ?? '{}') as {
+      data: { targeting?: { communities?: string[] }; start_time?: string; schedule?: unknown[] };
+    };
+    expect(groupBody.data.targeting?.communities).toEqual(['aww']);
+    expect(groupBody.data.start_time).toBe('2026-11-09T00:00:00.000Z');
+    expect(groupBody.data.schedule).toEqual([{ start_day: 1, end_day: 5, start_hour: 10, end_hour: 18 }]);
+    const adBody = JSON.parse(http.calls[7]!.body ?? '{}') as { data: { click_url: string; post_id: string } };
+    expect(adBody.data.click_url).toBe(FIXTURE_LANDING_PAGE_URL);
+    expect(adBody.data.post_id).toBe(FIXTURE_PROVIDER_POST_ID);
+    expect(http.calls.some((call) => call.url.includes('/posts') && !call.url.includes('structured_posts'))).toBe(false);
+  });
+
   it('creates campaign, ad group, and ad with the exact user landing URL as click_url', async () => {
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
@@ -131,7 +204,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(http.calls[0]!.headers.authorization).toBe('Bearer test-token-not-real');
   });
 
-  it('refuses create before any remote mutation when providerPostId is missing', async () => {
+  it('refuses create before any remote mutation when creative and providerPostId are missing', async () => {
     const http = new ScriptedHttpTransport([]);
     const adapter = new RedditAdsAdapter(redditConfig(), http);
     const result = await adapter.mutate(
@@ -151,6 +224,152 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(result.kind).toBe('refused');
     if (result.kind === 'refused') expect(result.code).toBe('provider_prerequisites_missing');
     expect(http.calls).toHaveLength(0);
+  });
+
+  it('refuses structured post create when the ad account has no profiles [zero job POST]', async () => {
+    const http = new ScriptedHttpTransport([{ status: 200, body: { data: [], pagination: {} } }]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'probe',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          dailyBudget: 12,
+          currency: 'USD',
+          platform: 'reddit',
+          providerAccountId: ACCOUNT,
+          creative: { ...FIXTURE_CREATIVE },
+          researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
+        },
+      })
+    );
+    expect(result.kind).toBe('refused');
+    if (result.kind === 'refused') expect(result.code).toBe('provider_prerequisites_missing');
+    expect(mutationCalls(http)).toHaveLength(0);
+  });
+
+  it('marks a still-QUEUED post job as ambiguous and does not POST a campaign', async () => {
+    const queued = {
+      status: 200 as const,
+      body: {
+        data: { id: 'job_1', status: 'QUEUED', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' },
+      },
+    };
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
+      {
+        status: 201,
+        body: { data: { id: 'job_1', status: 'QUEUED', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' } },
+      },
+      queued,
+      queued,
+      queued,
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'probe',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          dailyBudget: 12,
+          currency: 'USD',
+          platform: 'reddit',
+          providerAccountId: ACCOUNT,
+          creative: { ...FIXTURE_CREATIVE },
+          researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
+        },
+      })
+    );
+    expect(result.kind).toBe('ambiguous');
+    expect(http.calls.some((call) => call.method === 'POST' && call.url.includes('/campaigns'))).toBe(false);
+  });
+
+  it('GETs the job when POST SUCCESS omits post_id (official create-job schema)', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
+      {
+        status: 201,
+        body: { data: { id: 'job_1', status: 'SUCCESS', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' } },
+      },
+      {
+        status: 200,
+        body: {
+          data: {
+            id: 'job_1',
+            status: 'SUCCESS',
+            post_id: FIXTURE_PROVIDER_POST_ID,
+            error_message: null,
+            created_at: '2026-11-08T00:00:00Z',
+            modified_at: '2026-11-08T00:00:01Z',
+          },
+        },
+      },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 201, body: { data: { id: 'cmp_1', ad_account_id: ACCOUNT } } },
+      { status: 201, body: { data: { id: 'grp_1' } } },
+      { status: 201, body: { data: { id: 'ad_1', click_url: FIXTURE_LANDING_PAGE_URL } } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'probe',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          dailyBudget: 12,
+          currency: 'USD',
+          platform: 'reddit',
+          providerAccountId: ACCOUNT,
+          creative: { ...FIXTURE_CREATIVE },
+          researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
+        },
+      })
+    );
+    expect(result.kind).toBe('success');
+    expect(http.calls[2]!.method).toBe('GET');
+    expect(http.calls[2]!.url).toContain('/structured_posts/jobs/job_1');
+    const adBody = JSON.parse(http.calls[7]!.body ?? '{}') as { data: { post_id: string } };
+    expect(adBody.data.post_id).toBe(FIXTURE_PROVIDER_POST_ID);
+  });
+
+  it('treats timeout on GET structured post after a job POST as ambiguous', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
+      {
+        status: 201,
+        body: {
+          data: {
+            id: 'job_1',
+            status: 'SUCCESS',
+            post_id: FIXTURE_PROVIDER_POST_ID,
+            created_at: '2026-11-08T00:00:00Z',
+            modified_at: '2026-11-08T00:00:00Z',
+          },
+        },
+      },
+      { timeout: true },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'probe',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          dailyBudget: 12,
+          currency: 'USD',
+          platform: 'reddit',
+          providerAccountId: ACCOUNT,
+          creative: { ...FIXTURE_CREATIVE },
+          researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
+        },
+      })
+    );
+    expect(result.kind).toBe('ambiguous');
+    expect(http.calls.some((call) => call.method === 'POST' && call.url.includes('/campaigns'))).toBe(false);
   });
 
   it('refuses create before any remote mutation when conversion_pixel_id is missing', async () => {

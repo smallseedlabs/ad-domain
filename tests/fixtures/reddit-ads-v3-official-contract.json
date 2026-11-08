@@ -1,0 +1,156 @@
+{
+  "description": "Subset of official Reddit Advertising API v3 (OpenAPI 3.1.0, info.version 3) retrieved 2026-11-08 from https://ads-api.reddit.com/api/v3/openapi.json. Not a live Ads API call. Ads must not invent paths or required fields beyond this pin.",
+  "retrievedAt": "2026-11-08",
+  "sources": [
+    "https://ads-api.reddit.com/docs/v3/api/reddit-advertising-api",
+    "https://ads-api.reddit.com/api/v3/openapi.json",
+    "https://ads-api.reddit.com/docs/v3/api/create-structured-post-creation-job",
+    "https://ads-api.reddit.com/docs/v3/api/get-structured-post-creation-job",
+    "https://ads-api.reddit.com/docs/v3/api/create-ad",
+    "https://ads-api.reddit.com/docs/v3/api/create-ad-group",
+    "https://ads-api.reddit.com/docs/v3/guides/programs/campaign"
+  ],
+  "basePath": "/api/v3",
+  "oauthScopes": {
+    "adsread": "Read advertising data through my account.",
+    "adsedit": "Write advertising data through my account.",
+    "adsconversions": "Post conversion events through the API",
+    "adsdatadeletion": "Delete advertising data through my account."
+  },
+  "paths": {
+    "POST /profiles/{profile_id}/structured_posts/jobs": {
+      "operationId": "create_structured_post_creation_job",
+      "scope": "adsedit",
+      "policy": "ads-creative-management"
+    },
+    "GET /structured_posts/jobs/{post_creation_job_id}": {
+      "operationId": "get_structured_post_creation_job",
+      "scope": "adsread",
+      "jobStatuses": ["QUEUED", "PROCESSING", "SUCCESS", "CLIENT_ERROR", "SERVER_ERROR"],
+      "successFields": ["post_id", "error_message"]
+    },
+    "GET /structured_posts/{post_id}": {
+      "operationId": "get_structured_post",
+      "scope": "adsread"
+    },
+    "GET /ad_accounts/{ad_account_id}/profiles": {
+      "operationId": "list_profiles_by_ad_account",
+      "scope": "adsread"
+    },
+    "POST /ad_accounts/{ad_account_id}/ads": {
+      "operationId": "create_ad",
+      "scope": "adsedit",
+      "clickUrl": "The URL users are directed to when they click the ad."
+    },
+    "POST /ad_accounts/{ad_account_id}/ad_groups": {
+      "operationId": "create_ad_group",
+      "scope": "adsedit",
+      "manualCreateRequired": ["bid_strategy", "bid_type", "campaign_id", "name"]
+    },
+    "POST /profiles/{profile_id}/posts": {
+      "legacy": true,
+      "note": "Official docs: This is a legacy endpoint. Use Create Structured Post Creation Job instead."
+    },
+    "POST /profiles/{profile_id}/creative_assets/uploads": {
+      "operationId": "create_creative_asset_uploads",
+      "scope": "adsedit",
+      "supportedInThisSlice": false,
+      "reason": "Binary/asset-library upload is access-dependent; this slice requires official MediaUrl type=URL."
+    }
+  },
+  "imageCreativeRequired": ["type", "destination", "headline", "image"],
+  "textCreativeRequired": ["type", "body", "headline", "text_format"],
+  "mediaUrl": { "required": ["url", "type"], "typeConst": "URL" },
+  "destinationUrl": { "required": ["url", "type"], "typeConst": "URL" },
+  "textFormats": ["PLAIN_TEXT", "RICH_TEXT_JSON"],
+  "callToAction": [
+    "Apply Now",
+    "Contact Us",
+    "Download",
+    "Get a Quote",
+    "Get Showtimes",
+    "Install",
+    "Learn More",
+    "Order Now",
+    "Play Now",
+    "Pre-order Now",
+    "See Menu",
+    "Shop Now",
+    "Sign Up",
+    "View More",
+    "Watch Now",
+    "Book Now",
+    "Buy Tickets",
+    "Get Directions",
+    "Listen Now",
+    "Read More",
+    "Subscribe",
+    "Visit Store",
+    "Donate Now",
+    "Remind Me"
+  ],
+  "targetingFields": [
+    "carriers",
+    "communities",
+    "custom_audience_ids",
+    "devices",
+    "excluded_communities",
+    "excluded_custom_audience_ids",
+    "excluded_geolocations",
+    "excluded_interests",
+    "excluded_keywords",
+    "expand_targeting",
+    "gender",
+    "geolocations",
+    "interests",
+    "keywords",
+    "locations",
+    "platforms",
+    "suppression_event_types",
+    "view_modes",
+    "languages"
+  ],
+  "platforms": ["ALL", "DESKTOP", "DESKTOP_LEGACY", "MOBILE_NATIVE", "MOBILE_WEB", "MOBILE_WEB_3X", "SHREDTOP"],
+  "deprecatedPlatforms": ["DESKTOP_LEGACY"],
+  "locations": ["FEED", "COMMENTS_PAGE"],
+  "genders": ["FEMALE", "MALE"],
+  "languages": [
+    "AR",
+    "CS",
+    "DA",
+    "DE",
+    "EL",
+    "EN",
+    "ES",
+    "FI",
+    "FR",
+    "HU",
+    "IT",
+    "JA",
+    "KO",
+    "NL",
+    "NO",
+    "PL",
+    "PT",
+    "RO",
+    "SV",
+    "VI",
+    "ZH"
+  ],
+  "scheduleWindow": {
+    "start_day": { "min": 0, "max": 6, "note": "0 = Sunday" },
+    "end_day": { "min": 0, "max": 6 },
+    "start_hour": { "min": 0, "max": 23 },
+    "end_hour": { "min": 0, "max": 23 }
+  },
+  "unsupportedInThisSlice": [
+    "VIDEO creative",
+    "CAROUSEL creative",
+    "PROMOTED_POST creative",
+    "shopping_creative / CATALOG_SALES",
+    "APP_INSTALLS",
+    "Reddit Max DYNAMIC_CREATIVE_AD_TEMPLATE",
+    "legacy POST /profiles/{id}/posts",
+    "binary creative_assets/uploads"
+  ]
+}
