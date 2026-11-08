@@ -1,11 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { AmbiguousOutcomeError, IdempotencyConflictError, WorkspaceScopeError } from '../errors.js';
+import {
+  AmbiguousOutcomeError,
+  IdempotencyConflictError,
+  RequestValidationError,
+  WorkspaceScopeError,
+} from '../errors.js';
 import { SystemClock } from '../ports/clock.js';
 import { FakeProvider, eligibleBillingClaim } from '../providers/fake.js';
 import { UnconfiguredProvider } from '../providers/unconfigured.js';
 import { MemoryStore } from '../store/memory.js';
-import { testConfig, FIXTURE_LANDING_PAGE_URL, FIXTURE_TRACE_ID, FIXTURE_USER_ID, FIXTURE_WORKSPACE } from '../testing/config.js';
+import {
+  testConfig,
+  FIXTURE_GOAL_ID,
+  FIXTURE_LANDING_PAGE_URL,
+  FIXTURE_PROVIDER_POST_ID,
+  FIXTURE_RESEARCH_ACCEPTANCE,
+  FIXTURE_TRACE_ID,
+  FIXTURE_USER_ID,
+  FIXTURE_WORKSPACE,
+} from '../testing/config.js';
 import type { CampaignActionRequest } from '../types/http.js';
 import { executeCampaignAction } from './execute.js';
 
@@ -26,12 +40,15 @@ function createReq(overrides: Partial<CampaignActionRequest> = {}, args: Record<
     workspaceId: FIXTURE_WORKSPACE,
     userId: FIXTURE_USER_ID,
     verb: 'ads.create_campaign',
+    goalId: FIXTURE_GOAL_ID,
     args: {
       name: 'test campaign',
       landingPageUrl: FIXTURE_LANDING_PAGE_URL,
       dailyBudget: 15,
       currency: 'USD',
       platform: 'reddit',
+      providerPostId: FIXTURE_PROVIDER_POST_ID,
+      researchAcceptance: FIXTURE_RESEARCH_ACCEPTANCE,
       ...args,
     },
     ...overrides,
@@ -39,6 +56,17 @@ function createReq(overrides: Partial<CampaignActionRequest> = {}, args: Record<
 }
 
 describe('executeCampaignAction [fake-store]', () => {
+  it('refuses create without a goalId and does not invent one', async () => {
+    await expect(
+      executeCampaignAction(
+        { config: testConfig(), store: new MemoryStore(), provider: new UnconfiguredProvider(), clock: new SystemClock() },
+        createReq({ goalId: undefined }),
+        caller(),
+        randomUUID()
+      )
+    ).rejects.toBeInstanceOf(RequestValidationError);
+  });
+
   it('fails closed when the provider adapter is unconfigured and does not claim success', async () => {
     const store = new MemoryStore();
     const result = await executeCampaignAction(
@@ -110,6 +138,8 @@ describe('executeCampaignAction [fake-store]', () => {
     if (result.ok) {
       expect(result.data.landingPageUrl).toBe(FIXTURE_LANDING_PAGE_URL);
       expect(result.data.probaCampaignId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.data.providerLaunch).toBeUndefined();
+      expect(result.data.deliverableAd).toBeUndefined();
     }
   });
 

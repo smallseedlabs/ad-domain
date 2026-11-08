@@ -42,7 +42,8 @@ function fail(code: string, message: string): Extract<AdsDomainResult, { ok: fal
 }
 
 function mappingOf(row: CampaignRecord, mapping?: ProviderMapping): AdsDomainResult {
-  const scaffold = mapping?.launchKind === 'campaign_ad_group_scaffold' || mapping?.deliverableAd === false;
+  const deliverable = mapping?.launchKind === 'deliverable_ad' || mapping?.deliverableAd === true || Boolean(row.providerAdId);
+  const scaffold = !deliverable && (mapping?.launchKind === 'campaign_ad_group_scaffold' || mapping?.deliverableAd === false);
   return {
     ok: true,
     data: {
@@ -61,6 +62,13 @@ function mappingOf(row: CampaignRecord, mapping?: ProviderMapping): AdsDomainRes
               },
             ]
           : [],
+      ...(deliverable
+        ? {
+            providerLaunch: 'deliverable_ad',
+            deliverableAd: true,
+            clickUrlPushed: true,
+          }
+        : {}),
       ...(scaffold
         ? {
             providerLaunch: 'campaign_ad_group_scaffold',
@@ -125,8 +133,13 @@ async function executeOnce(
     throw new WorkspaceScopeError();
   }
   const args = parseVerbArgs(request.verb, request.args);
+  if (args.verb === 'ads.create_campaign' && !request.goalId) {
+    throw new RequestValidationError(
+      'goalId is required on ads.create_campaign so research acceptance can be bound; Ads does not invent a goal'
+    );
+  }
   const spendClass = spendClassFor(args.verb, request.args);
-  const fingerprint = requestFingerprint(args.verb, request.args);
+  const fingerprint = requestFingerprint(args.verb, { ...request.args, goalId: request.goalId });
 
   const prepared = await deps.store.withTransaction(async (tx) => {
     const claim = await tx.claimCommand({
@@ -190,6 +203,15 @@ async function executeOnce(
       const result = fail(
         'provider_unconfigured',
         'No provider adapter is configured. The command was not applied as a provider mutation and success is not claimed.'
+      );
+      await finishRejected(tx, deps, request, idempotencyKey, args, result);
+      return { kind: 'done' as const, result };
+    }
+
+    if (args.verb === 'ads.create_campaign' && !args.researchAcceptance) {
+      const result = fail(
+        'provider_prerequisites_missing',
+        'researchAcceptance (artifactId, version, inputRevision) is required before create. Ads does not call Hub and does not treat missing research as accepted.'
       );
       await finishRejected(tx, deps, request, idempotencyKey, args, result);
       return { kind: 'done' as const, result };
@@ -284,6 +306,7 @@ async function executeOnce(
     providerAccountId: prepared.prepared.providerAccountId ?? campaign.providerAccountId,
     providerCampaignId: campaign.providerCampaignId,
     providerAdGroupId: campaign.providerAdGroupId,
+    providerAdId: campaign.providerAdId,
   });
 
   return deps.store.withTransaction(async (tx) => {
@@ -359,14 +382,20 @@ async function executeOnce(
       return result;
     }
 
+    const deliverable =
+      parsed.verb === 'ads.create_campaign' &&
+      (outcome.mapping.launchKind === 'deliverable_ad' || outcome.mapping.deliverableAd === true);
     const scaffoldOnly =
       parsed.verb === 'ads.create_campaign' &&
+      !deliverable &&
       (outcome.mapping.launchKind === 'campaign_ad_group_scaffold' || outcome.mapping.deliverableAd === false);
     const nextStatus =
       parsed.verb === 'ads.pause_campaign' ? 'paused' : scaffoldOnly ? 'draft' : 'active';
     const campaignAction =
       parsed.verb === 'ads.create_campaign'
-        ? 'campaign.created'
+        ? deliverable
+          ? 'campaign.launched'
+          : 'campaign.created'
         : parsed.verb === 'ads.pause_campaign'
           ? 'campaign.paused'
           : parsed.verb === 'ads.resume_campaign'
@@ -412,6 +441,13 @@ async function executeOnce(
           version: updated.version,
           platform: updated.platform,
           landingPageUrlLength: updated.landingPageUrl.length,
+          ...(deliverable
+            ? {
+                providerLaunch: 'deliverable_ad',
+                deliverableAd: true,
+                clickUrlPushed: true,
+              }
+            : {}),
           ...(scaffoldOnly
             ? {
                 providerLaunch: 'campaign_ad_group_scaffold',

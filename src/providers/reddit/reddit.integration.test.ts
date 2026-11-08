@@ -10,7 +10,15 @@ import { PostgresStore } from '../../store/postgres.js';
 import { OutboxRelay } from '../../audit/relay.js';
 import { MemoryAuditPublisher } from '../../audit/publisher.js';
 import { createLogger } from '../../logger.js';
-import { testConfig, FIXTURE_LANDING_PAGE_URL, FIXTURE_TRACE_ID, FIXTURE_USER_ID } from '../../testing/config.js';
+import {
+  testConfig,
+  fixtureCreateArgs,
+  FIXTURE_GOAL_ID,
+  FIXTURE_LANDING_PAGE_URL,
+  FIXTURE_PROVIDER_POST_ID,
+  FIXTURE_TRACE_ID,
+  FIXTURE_USER_ID,
+} from '../../testing/config.js';
 import { realPostgresUrl } from '../../testing/real-env.js';
 import { RedditAdsAdapter } from './adapter.js';
 import { REDDIT_ADS_API_BASE } from './config.js';
@@ -41,9 +49,11 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
     );
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_pg', ad_account_id: ACCOUNT } } },
       { status: 201, body: { data: { id: 'grp_pg' } } },
+      { status: 201, body: { data: { id: 'ad_pg', click_url: FIXTURE_LANDING_PAGE_URL } } },
     ]);
     const provider = new RedditAdsAdapter(
       {
@@ -64,14 +74,11 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
         workspaceId: workspace,
         userId: FIXTURE_USER_ID,
         verb: 'ads.create_campaign',
-        args: {
+        goalId: FIXTURE_GOAL_ID,
+        args: fixtureCreateArgs({
           name: 'pg-reddit',
-          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
-          dailyBudget: 12,
-          currency: 'USD',
-          platform: 'reddit',
           providerAccountId: ACCOUNT,
-        },
+        }),
       },
       {
         issuer: 'proba-gateway',
@@ -85,9 +92,11 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(created.data.landingPageUrl).toBe(FIXTURE_LANDING_PAGE_URL);
-    expect(created.data.providerLaunch).toBe('campaign_ad_group_scaffold');
-    expect(created.data.deliverableAd).toBe(false);
+    expect(created.data.providerLaunch).toBe('deliverable_ad');
+    expect(created.data.deliverableAd).toBe(true);
+    expect(created.data.clickUrlPushed).toBe(true);
     expect(created.data.mappings?.[0]?.providerCampaignId).toBe('cmp_pg');
+    expect(created.data.mappings?.[0]?.providerAdId).toBe('ad_pg');
 
     const bus = new MemoryAuditPublisher();
     const relay = new OutboxRelay({
@@ -102,7 +111,7 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
     for (let i = 0; i < 20; i++) {
       const cycle = await relay.runOnce();
       foundCreated = bus.events.some(
-        (e) => e.action === 'campaign.created' && e.campaignId === created.data.probaCampaignId
+        (e) => e.action === 'campaign.launched' && e.campaignId === created.data.probaCampaignId
       );
       if (foundCreated || cycle.claimed === 0) break;
     }
@@ -110,6 +119,7 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
 
     const timeoutHttp = new ScriptedHttpTransport([
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { timeout: true },
     ]);
@@ -134,14 +144,12 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
           workspaceId: workspace,
           userId: FIXTURE_USER_ID,
           verb: 'ads.create_campaign',
-          args: {
+          goalId: FIXTURE_GOAL_ID,
+          args: fixtureCreateArgs({
             name: 'pg-timeout',
-            landingPageUrl: FIXTURE_LANDING_PAGE_URL,
             dailyBudget: 8,
-            currency: 'USD',
-            platform: 'reddit',
             providerAccountId: ACCOUNT,
-          },
+          }),
         },
         {
           issuer: 'proba-gateway',
@@ -163,14 +171,12 @@ describe.skipIf(!realPostgresUrl())('Reddit adapter + Postgres [real-pg] [inject
           workspaceId: workspace,
           userId: FIXTURE_USER_ID,
           verb: 'ads.create_campaign',
-          args: {
+          goalId: FIXTURE_GOAL_ID,
+          args: fixtureCreateArgs({
             name: 'pg-timeout',
-            landingPageUrl: FIXTURE_LANDING_PAGE_URL,
             dailyBudget: 8,
-            currency: 'USD',
-            platform: 'reddit',
             providerAccountId: ACCOUNT,
-          },
+          }),
         },
         {
           issuer: 'proba-gateway',
