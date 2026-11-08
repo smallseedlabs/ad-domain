@@ -40,4 +40,16 @@ export interface AdsServiceConfig {
     maxDailyBudgetCurrency: string | null;
     allowTestFakes: boolean;
   };
+  reddit:
+    | { enabled: false }
+    | {
+        enabled: true;
+        adAccountId: string;
+        accessToken: string;
+        apiBaseUrl: string;
+        timeoutMs: number;
+        userAgent: string;
+        conversionPixelId?: string;
+        reportMaxPages?: number;
+      };
 }

@@ -12,7 +12,7 @@ import {
 } from '../errors.js';
 import type { Clock } from '../ports/clock.js';
 import type { VerifiedCaller } from '../ports/auth.js';
-import type { ProviderAdapter } from '../providers/port.js';
+import type { ProviderAdapter, ProviderMapping } from '../providers/port.js';
 import type { AdsStore, AdsTx, CampaignRecord, CommandRecord } from '../store/port.js';
 import { requestFingerprint } from '../store/fingerprint.js';
 import type { AdsServiceConfig } from '../types/config.js';
@@ -41,7 +41,9 @@ function fail(code: string, message: string): Extract<AdsDomainResult, { ok: fal
   return { ok: false, code, message };
 }
 
-function mappingOf(row: CampaignRecord): AdsDomainResult {
+function mappingOf(row: CampaignRecord, mapping?: ProviderMapping): AdsDomainResult {
+  const deliverable = mapping?.launchKind === 'deliverable_ad' || mapping?.deliverableAd === true || Boolean(row.providerAdId);
+  const scaffold = !deliverable && (mapping?.launchKind === 'campaign_ad_group_scaffold' || mapping?.deliverableAd === false);
   return {
     ok: true,
     data: {
@@ -60,6 +62,21 @@ function mappingOf(row: CampaignRecord): AdsDomainResult {
               },
             ]
           : [],
+      ...(deliverable
+        ? {
+            providerLaunch: 'deliverable_ad',
+            deliverableAd: true,
+            clickUrlPushed: true,
+          }
+        : {}),
+      ...(scaffold
+        ? {
+            providerLaunch: 'campaign_ad_group_scaffold',
+            deliverableAd: false,
+            clickUrlPushed: false,
+            missingProviderEntities: mapping?.missingEntities ?? ['ad', 'creative', 'click_url'],
+          }
+        : {}),
     },
   };
 }
@@ -85,6 +102,7 @@ async function requireAccount(tx: AdsTx, workspaceId: string, args: ParsedAdsArg
 interface PreparedCommand {
   campaign: CampaignRecord;
   args: ParsedAdsArgs;
+  providerAccountId?: string;
 }
 
 const inProcessClaims = new Map<string, Promise<AdsDomainResult>>();
@@ -115,8 +133,13 @@ async function executeOnce(
     throw new WorkspaceScopeError();
   }
   const args = parseVerbArgs(request.verb, request.args);
+  if (args.verb === 'ads.create_campaign' && !request.goalId) {
+    throw new RequestValidationError(
+      'goalId is required on ads.create_campaign so research acceptance can be bound; Ads does not invent a goal'
+    );
+  }
   const spendClass = spendClassFor(args.verb, request.args);
-  const fingerprint = requestFingerprint(args.verb, request.args);
+  const fingerprint = requestFingerprint(args.verb, { ...request.args, goalId: request.goalId });
 
   const prepared = await deps.store.withTransaction(async (tx) => {
     const claim = await tx.claimCommand({
@@ -185,6 +208,15 @@ async function executeOnce(
       return { kind: 'done' as const, result };
     }
 
+    if (args.verb === 'ads.create_campaign' && !args.researchAcceptance) {
+      const result = fail(
+        'provider_prerequisites_missing',
+        'researchAcceptance (artifactId, version, inputRevision) is required before create. Ads does not call Hub and does not treat missing research as accepted.'
+      );
+      await finishRejected(tx, deps, request, idempotencyKey, args, result);
+      return { kind: 'done' as const, result };
+    }
+
     const billed = await deps.provider.billingClaim(request.workspaceId, args.platform);
     const gate = evaluateBillingGate({
       claim: billed,
@@ -202,7 +234,7 @@ async function executeOnce(
     let campaign: CampaignRecord;
     try {
       if (args.verb === 'ads.create_campaign') {
-        await requireAccount(tx, request.workspaceId, args, args.platform!);
+        const account = await requireAccount(tx, request.workspaceId, args, args.platform!);
         campaign = {
           workspaceId: request.workspaceId,
           probaCampaignId: randomUUID(),
@@ -216,6 +248,7 @@ async function executeOnce(
           status: 'draft',
           version: 1,
           lockCommandKey: idempotencyKey,
+          providerAccountId: account.accountId,
         };
         await tx.insertCampaign(campaign);
       } else {
@@ -253,7 +286,10 @@ async function executeOnce(
       })
     );
     await tx.markInFlight(request.workspaceId, idempotencyKey, campaign.probaCampaignId);
-    return { kind: 'dispatch' as const, prepared: { campaign, args } satisfies PreparedCommand };
+    return {
+      kind: 'dispatch' as const,
+      prepared: { campaign, args, providerAccountId: campaign.providerAccountId } satisfies PreparedCommand,
+    };
   });
 
   if (prepared.kind === 'replay' || prepared.kind === 'done') return prepared.result;
@@ -267,6 +303,10 @@ async function executeOnce(
     platform: campaign.platform,
     probaCampaignId: campaign.probaCampaignId,
     landingPageUrl: parsed.landingPageUrl ?? campaign.landingPageUrl,
+    providerAccountId: prepared.prepared.providerAccountId ?? campaign.providerAccountId,
+    providerCampaignId: campaign.providerCampaignId,
+    providerAdGroupId: campaign.providerAdGroupId,
+    providerAdId: campaign.providerAdId,
   });
 
   return deps.store.withTransaction(async (tx) => {
@@ -342,10 +382,20 @@ async function executeOnce(
       return result;
     }
 
-    const nextStatus = parsed.verb === 'ads.pause_campaign' ? 'paused' : 'active';
+    const deliverable =
+      parsed.verb === 'ads.create_campaign' &&
+      (outcome.mapping.launchKind === 'deliverable_ad' || outcome.mapping.deliverableAd === true);
+    const scaffoldOnly =
+      parsed.verb === 'ads.create_campaign' &&
+      !deliverable &&
+      (outcome.mapping.launchKind === 'campaign_ad_group_scaffold' || outcome.mapping.deliverableAd === false);
+    const nextStatus =
+      parsed.verb === 'ads.pause_campaign' ? 'paused' : scaffoldOnly ? 'draft' : 'active';
     const campaignAction =
       parsed.verb === 'ads.create_campaign'
-        ? 'campaign.created'
+        ? deliverable
+          ? 'campaign.launched'
+          : 'campaign.created'
         : parsed.verb === 'ads.pause_campaign'
           ? 'campaign.paused'
           : parsed.verb === 'ads.resume_campaign'
@@ -368,7 +418,7 @@ async function executeOnce(
       reconcile: null,
     });
     if (!updated) throw new StaleVersionError();
-    const result = mappingOf(updated);
+    const result = mappingOf(updated, outcome.mapping);
     await tx.completeCommand({
       workspaceId: request.workspaceId,
       idempotencyKey,
@@ -391,6 +441,20 @@ async function executeOnce(
           version: updated.version,
           platform: updated.platform,
           landingPageUrlLength: updated.landingPageUrl.length,
+          ...(deliverable
+            ? {
+                providerLaunch: 'deliverable_ad',
+                deliverableAd: true,
+                clickUrlPushed: true,
+              }
+            : {}),
+          ...(scaffoldOnly
+            ? {
+                providerLaunch: 'campaign_ad_group_scaffold',
+                deliverableAd: false,
+                clickUrlPushed: false,
+              }
+            : {}),
         },
       })
     );

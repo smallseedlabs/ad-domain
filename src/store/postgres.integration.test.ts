@@ -10,7 +10,13 @@ import { PostgresStore } from './postgres.js';
 import { OutboxRelay } from '../audit/relay.js';
 import { MemoryAuditPublisher } from '../audit/publisher.js';
 import { createLogger } from '../logger.js';
-import { testConfig, FIXTURE_LANDING_PAGE_URL, FIXTURE_TRACE_ID, FIXTURE_USER_ID } from '../testing/config.js';
+import {
+  testConfig,
+  fixtureCreateArgs,
+  FIXTURE_GOAL_ID,
+  FIXTURE_TRACE_ID,
+  FIXTURE_USER_ID,
+} from '../testing/config.js';
 import { realPostgresUrl } from '../testing/real-env.js';
 
 describe.skipIf(!realPostgresUrl())('Postgres store + outbox [real-pg]', () => {
@@ -37,13 +43,8 @@ describe.skipIf(!realPostgresUrl())('Postgres store + outbox [real-pg]', () => {
         workspaceId: workspace,
         userId: FIXTURE_USER_ID,
         verb: 'ads.create_campaign',
-        args: {
-          name: 'pg',
-          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
-          dailyBudget: 12,
-          currency: 'USD',
-          platform: 'reddit',
-        },
+        goalId: FIXTURE_GOAL_ID,
+        args: fixtureCreateArgs({ name: 'pg' }),
       },
       {
         issuer: 'proba-gateway',
@@ -75,13 +76,8 @@ describe.skipIf(!realPostgresUrl())('Postgres store + outbox [real-pg]', () => {
         workspaceId: workspace,
         userId: FIXTURE_USER_ID,
         verb: 'ads.create_campaign',
-        args: {
-          name: 'pg-ok',
-          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
-          dailyBudget: 12,
-          currency: 'USD',
-          platform: 'reddit',
-        },
+        goalId: FIXTURE_GOAL_ID,
+        args: fixtureCreateArgs({ name: 'pg-ok' }),
       },
       {
         issuer: 'proba-gateway',

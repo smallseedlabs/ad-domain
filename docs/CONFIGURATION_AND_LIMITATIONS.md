@@ -36,76 +36,178 @@ Audit: domain writes and `ads.audit_outbox` share a transaction. Relay `XADD`s p
 
 ## 2. Not built / not claimed
 
-- Live Reddit/Microsoft/Google/Meta adapters (Task 5+, queued). Credentials refused in this process.
-- Hub → gateway → Ads end-to-end. Gateway PR3 is merged; Hub/web destination URL capture and research→create are still later. This repo does not retry Hub/web/protocol PRs.
+- Microsoft/Google/Meta adapters. Reddit v3 is in-process and **off** unless `REDDIT_ADS_ENABLED=true` with account + token file.
+- Hub → gateway → Ads end-to-end. Gateway PR3 is merged; Hub/web destination URL capture and research→create are still later. This repo does not retry Hub/web/protocol PRs. Gateway “accepted artifact” guard is an **upstream** requirement, not built here.
 - Operator/portal destination URL field, protocol `create_goal` URL, research→sourced findings→user validation→create. Those are absent upstream. **Minimal future hook:** pass the user-entered URL as gateway tool arg `landingPageUrl` (already the Ads request field). Do not invent a research schema here.
 - `workspaceId` on gateway-minted Ads tokens (compatible additive claim).
 - Workload/workspace spend meshes, `$2` model caps, live automation delegation.
-- Analytics bot.
+- Analytics bot / Hub query UI. This slice can **fetch** Reddit reports into protocol `MetricObservation`s and emit them on the existing audit outbox (`POST /v1/metrics-fetch`). It does not store a metrics table, run the audit ingester, or expose a query UI.
 
 ## 3. npm audit (this checkout)
 
-Recorded 2026-11-08 after a **tested** Fastify **5.12.8** + Vitest **5.1.0** + Vite **6.4.5** upgrade on this service. Sibling Fastify 4 / Vitest 2 stacks were **not** used as a reason to keep known-vulnerable majors here. **`npm audit fix --force` was not used.** `--legacy-peer-deps` was not used. Test pass is not a security clearance.
-
-Current `npm audit` (prod+dev): **8** advisories — **6 moderate, 2 high, 0 critical**.  
-`npm audit --omit=dev` (production tree): **2 high, 0 critical** (`zod@3.25.76` and `@smallseedlabs/proba-protocol@0.4.0` via `zod`).
+Recorded 2026-11-08 after this PR’s install on top of Ads PR2 (Fastify **5.12.8** / Vitest **5.1.0** / Vite **6.4.5**). `npm audit --omit=dev` → **0** vulnerabilities. Full tree (`prod+dev`): **6 moderate, 0 high, 0 critical** (`minimatch` via eslint 8 / typescript-eslint 7). **`npm audit fix --force` was not used.** `--legacy-peer-deps` was not used. Test pass is not a security clearance.
 
 | Package | Severity | Tree | Compatible fix attempted | Status |
 | --- | --- | --- | --- | --- |
-| `fastify` | high (4.x rollup) | **prod** | upgraded to **5.12.8** (`find-my-way@9.10.0`). HTTP surface is `inject`/`listen({host,port})`, `logger: false`, `trustProxy: false`, no Fastify JSON schemas. Runtime/CI/image moved to Node **22.12+** with this upgrade. | **remediated** |
-| `find-my-way` HTTP/2 DDoS | high | **prod** | comes in with Fastify 5 (9.10.0 ≥ 9.7) | **remediated** |
-| `vitest` UI-server arbitrary file read/exec | critical | **dev** | upgraded to **5.1.0** (npm’s patched line). Peer Vite resolved with direct `vite@^6.4.5` (patched ≥6.4.4) and `@types/node@^22` (types only; runtime engine remains Node ≥20). | **remediated** |
-| `vite` / `@vitest/mocker` / `esbuild` / `vite-node` / `tinypool` | high/moderate/critical | **dev** | pulled by Vitest 5 + Vite 6.4.5; `tinypool` is no longer in this tree | **remediated** in current lockfile |
-| `zod` 3.25.76 | high: collection memory exhaustion | **prod** (+ protocol) | **not upgraded.** See §3.1. Body cap `ADS_MAX_REQUEST_BYTES` default 262144 is a partial bound, **unverified** vs the GHSA. | **unresolved**; blocked on protocol |
-| `@smallseedlabs/proba-protocol` | high via `zod` | **prod** | no ads-only compatible fix | **unresolved**; blocked on protocol |
-| `minimatch` 9.0.9 via typescript-eslint 7 / eslint 8 | moderate | **dev** | already latest 9.x. npm’s advertised “fix” is parser **6.15.0** (semver **downgrade**). A real path is eslint 9 + typescript-eslint 8 (lint-stack major, not this PR). | **unresolved**; eslint-time only |
+| `fastify` | high (4.x rollup) | **prod** | upgraded to **5.12.8** in Ads PR2 | **remediated** (PR2) |
+| `find-my-way` HTTP/2 DDoS | high | **prod** | Fastify 5 (`9.10.0` ≥ 9.7) | **remediated** (PR2) |
+| `vitest` / `vite` / `tinypool` | critical/high/moderate | **dev** | Vitest **5.1.0** + Vite **6.4.5** in Ads PR2 | **remediated** (PR2) |
+| `zod` collection memory exhaustion | high | **prod** | Ads `zod@^4.6.7` paired with released protocol `v0.6.0`. No `overrides`. | **remediated** (PR4 merged into this stack; tag published) |
+| `@smallseedlabs/proba-protocol` via Zod 3 | high | **prod** | pin released `github:smallseedlabs/proba-protocol#v0.6.0` (`4ac2182…`). | **remediated**; unmerged SHA pin superseded |
+| `minimatch` 9.0.9 via typescript-eslint 7 / eslint 8 | moderate | **dev** | already latest 9.x. npm’s advertised “fix” is parser **6.15.0** (semver **downgrade**). | **unresolved**; eslint-time only |
 
 Do not treat this table as an exploitability proof.
 
-### 3.1 Zod / protocol prerequisite (why Ads cannot take Zod 4 in this PR)
+### 3.1 Protocol pin (released `v0.6.0`)
 
-Pinned dependency: `github:smallseedlabs/proba-protocol#v0.4.0` (`@smallseedlabs/proba-protocol@0.4.0`). That package’s `package.json` depends on:
+Verified 2026-11-08: protocol PRs [#22](https://github.com/smallseedlabs/proba-protocol/pull/22) and [#23](https://github.com/smallseedlabs/proba-protocol/pull/23) are **merged**. GitHub release/tag [`v0.6.0`](https://github.com/smallseedlabs/proba-protocol/releases/tag/v0.6.0) is commit `4ac21825570703b0ae5849a5fc6ed930c3694b0c` (`@smallseedlabs/proba-protocol@0.6.0`, `zod@^4.6.7`, no `zod-to-json-schema`).
 
-- `zod@^3.23.8` (Zod **3** API)
-- `zod-to-json-schema@^3.23.3` (Zod **3** only; used by `scripts/generate-schemas.js`)
+```
+"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#v0.6.0"
+"zod": "^4.6.7"
+```
 
-Protocol TypeScript schemas (`src/schemas/audit.ts`, `command.ts`, `event.ts`, `ui.ts`, `metrics.ts`, `context.ts`) `import { z } from 'zod'`. Ads imports `validateAuditEvent` / `buildAuditEvent` from that package and also uses Zod 3 locally (`z.record(z.unknown())`, `z.string().datetime()`, `z.ZodIssueCode.custom`) so HTTP and audit validation share one major.
+No `overrides`. `tests/fixtures/ads-consumer-schema-contract.json` loads `@smallseedlabs/proba-protocol/schemas` (AuditEvent + MetricObservation).
 
-Options that were **rejected** here (incompatible or incomplete):
+Rejected still:
 
-| Option | Why not in this PR |
+| Option | Why not |
 | --- | --- |
-| `overrides: { "zod": "4.6.6" }` | Forces protocol onto Zod 4’s default export. That is a different API (`z.record` arity, JSON schema helper, issue codes). It is an incompatible resolution, not a supported upgrade. |
-| `npm audit fix --force` | Would also move Fastify/Vitest/eslint along npm’s breakages without a tested tree. Already done Fastify/Vitest **with tests** instead. |
-| Dual-major: Ads on Zod 4, nested protocol on Zod 3 | Two schema runtimes in one process. Production `npm audit --omit=dev` would **still** report protocol’s nested Zod 3. Does not clear the remaining highs. |
-| Edit `proba-protocol` in this run | Other workstream owns protocol/gateway/hub/web. Out of scope. |
+| `overrides: { "zod": "4.6.7" }` on protocol `v0.4.0` | Forces Zod 4 onto a Zod 3 protocol API. Incompatible. |
+| Dual-major Ads Zod 4 + nested protocol Zod 3 | Two schema runtimes; prod audit would still report protocol’s Zod 3. |
+| Edit `proba-protocol` / Hub / gateway / web in this run | Other workstream. Out of scope. |
+| Pin unmerged SHA `298eeb4…` / `#e310475` | Superseded by released `v0.6.0`. |
 
-**Upstream prerequisite (protocol workstream, then a follow-up Ads bump):**
+**Merge order:** Ads [#2](https://github.com/smallseedlabs/ad-domain/pull/2) → [#3](https://github.com/smallseedlabs/ad-domain/pull/3) → [#5](https://github.com/smallseedlabs/ad-domain/pull/5) → this launch follow-up. [#4](https://github.com/smallseedlabs/ad-domain/pull/4) was the unmerged-SHA pin; this branch non-destructively merged it and retargeted to the released tag.
 
-1. Publish a protocol version that depends on **`zod@>=4.6.6`** (the GHSA patched line; 4.6.7 is current).
-2. Replace **`zod-to-json-schema`** (no Zod 4 support) with Zod 4’s `z.toJSONSchema()` (or another Zod 4-capable generator) in `scripts/generate-schemas.js`.
-3. Tag that release (for example `v0.5.0` — exact tag is the protocol owners’). Regenerated `schemas/*.json` must stay compatible with existing audit consumers.
-4. Ads then changes `"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#<new-tag>"` **and** `"zod": "^4.6.6"` together, and updates local schemas (`z.record(z.string(), z.unknown())`, datetime helpers, issue codes).
-
-Until that tag exists, keeping Ads on Zod 3 aligned with protocol v0.4.0 is the compatibility-safe option. Body-size limits are **not** a substitute for the patched Zod line.
-
-### 3.2 Task 5 (queued — Reddit module)
-
-Not this PR. First live adapter is Reddit (gateway `FIRST_AD_PLATFORMS` starts with `reddit`). Requirements that the foundation already encodes:
-
-- Implement `ProviderAdapter` for Reddit; default remains `UnconfiguredProvider` until that module is configured.
-- Never report mutation `ok: true` without a real provider result. Uncertain outcomes stay `ambiguous` and are not retried as success.
-- Create/resume/spend-increase still require verified billing; pause may skip ad-balance only. Billing `unknown` is not a verified zero.
-- Credentials do not belong in this process until the adapter task; env keys for live networks are already refused at config load.
-- `landingPageUrl` stays a request argument (no hardcoded/default destination).
-- Tests: unit fakes vs isolated PG/Redis; **no live Reddit spend** in CI.
+Local Zod 4 call-site updates: `z.record(z.string(), z.unknown())`, `z.uuid()`, `z.iso.datetime()`, `code: "custom"`. Body-size limits remain a partial bound, not a substitute for the patched Zod line.
 
 ## 4. Test vs real
 
 | Kind | How | Spends ads? |
 | --- | --- | --- |
 | Unit / fake-store / fake-provider | `npm test` | no |
+| Reddit adapter (injected HTTP) | `ScriptedHttpTransport` | no live Reddit |
 | Real Postgres schema `ads` | `ADS_TEST_DATABASE_URL` + `npm run test:integration` | no |
 | Real Redis stream XADD | `ADS_TEST_REDIS_URL` | no |
 
 Compose ports `127.0.0.1:55436` (Postgres) and `127.0.0.1:56381` (Redis) avoid sibling Proba maps. Do not point `DATABASE_URL` at Hub/Context/Memory databases without the `ads` schema isolation (migrations create `ads.*` only; they do not DROP sibling tables).
+
+## 5. Reddit Ads adapter (Task 5)
+
+In-process module, not a separate deployment. Default remains `UnconfiguredProvider`. The Reddit adapter is constructed only when `REDDIT_ADS_ENABLED=true` **and** `REDDIT_AD_ACCOUNT_ID` plus `REDDIT_ACCESS_TOKEN_FILE` (production) or `REDDIT_ACCESS_TOKEN` (non-production) are set. Incomplete enablement refuses process start. Client-secret / refresh is **not** implemented (`REDDIT_CLIENT_SECRET` is refused). Token expiry surfaces as 401 fail-closed.
+
+Public docs used (read-only, 2026-11-08): [Reddit Advertising API v3](https://ads-api.reddit.com/docs/v3/api/reddit-advertising-api), [Create Campaign](https://ads-api.reddit.com/docs/v3/api/create-campaign), [Create Ad Group](https://ads-api.reddit.com/docs/v3/api/create-ad-group), [Create Ad](https://ads-api.reddit.com/docs/v3/api/create-ad), [Get a Structured Post](https://ads-api.reddit.com/docs/v3/api/get-a-structured-post), [Update Campaign](https://ads-api.reddit.com/docs/v3/api/update-campaign), [List Funding Instruments](https://ads-api.reddit.com/docs/v3/api/list-funding-instruments). v2 is sunset except CAPI.
+
+### Operational
+
+```
+REDDIT_ADS_ENABLED=true
+REDDIT_AD_ACCOUNT_ID=a2_…
+REDDIT_ACCESS_TOKEN_FILE=/run/secrets/reddit_access_token
+# required before any create (all ad groups since 2026-07-13):
+REDDIT_CONVERSION_PIXEL_ID=t2_…
+# optional:
+# REDDIT_ADS_API_BASE_URL=https://ads-api.reddit.com/api/v3
+# REDDIT_HTTP_TIMEOUT_MS=10000
+# REDDIT_USER_AGENT=web:proba-ads:0.1.0 (by /u/your_reddit_username)
+# REDDIT_REPORT_MAX_PAGES=10
+```
+
+Workspace rows still require a ready `ads.provider_accounts` mapping for that Reddit account. Commands that name a different `providerAccountId` are refused. Pause/resume/update GET the remote campaign and refuse if `ad_account_id` is not the configured account. Cross-provider transfers are not implemented.
+
+`landingPageUrl` is the request argument (fixture `https://example.test/offer` in tests). It is stored on the Proba campaign. No SmallSeed/marketing URL is defaulted. Reddit `click_url` is **ad-level**. On a deliverable create this process sends **that exact string** as `click_url` on `POST /ad_accounts/{id}/ads`. Campaign/ad-group without an ad is **not** a launch.
+
+**Create semantics (deliverable ad, or honest scaffold).** `ads.create_campaign` is claimed as a launch only when Reddit returns an ad id after:
+
+1. Input validation (`landingPageUrl`, `providerPostId` `t3_…`, protocol `researchAcceptance`, `goalId`).
+2. Pixel + research + post id present locally (**zero POST** if any is missing).
+3. `GET /structured_posts/{post_id}` succeeds. 404/timeout on this GET is `provider_prerequisites_missing`, **not** ambiguous, and **no campaign is sent**. Ads does **not** create posts (official create-post needs `profile_id` + media, which this process does not invent).
+4. Verified eligible billing (funding instruments).
+5. `POST` campaign → ad group (`conversion_pixel_id`) → ad (`post_id`, `click_url` = exact `landingPageUrl`).
+
+HTTP result then sets `providerLaunch: deliverable_ad`, `deliverableAd: true`, `clickUrlPushed: true`. Local status becomes `active`. Audit action is `campaign.launched`. Preflight `running` is true only when a `providerAdId` exists.
+
+If campaign/ad-group POST succeeded but ad create 4xx’d, the mapping is a **scaffold**: `providerLaunch: campaign_ad_group_scaffold`, `deliverableAd: false`, `clickUrlPushed: false`, `missingProviderEntities` includes `ad`/`click_url`, local status stays `draft`, audit is `campaign.created`. Timeout/5xx on campaign/ad-group/**ad** POST is `outcome_ambiguous` and is not retried as success.
+
+`researchAcceptance` is a well-formed protocol binding only. Ads does **not** call Hub and does **not** prove the artifact was accepted there.
+
+**Mandatory create prerequisites (all fail closed before mutation):** `REDDIT_CONVERSION_PIXEL_ID` (valid pixel id; required on **all** ad groups since 2026-07-13), caller `landingPageUrl`, `providerPostId`, `researchAcceptance`, `goalId`, ready account mapping, verified eligible billing. Missing/invalid pixel or post → `provider_prerequisites_missing` **before any POST/PATCH**. Pause/resume may run without a pixel. Process start still allows enablement without a pixel so pause-only operators are not blocked.
+
+Create/resume/spend-increase still require a **verified eligible** billing claim. Pause may skip ad-balance only. `/health` and `/ready` still do not query Reddit billing.
+
+### Billing (fail closed)
+
+`GET /ad_accounts/{id}/funding_instruments?mode=SELECTABLE` (`ads-funding-instruments`). This process does **not** follow `pagination.next_url`.
+
+| HTTP / parse | Claim |
+| --- | --- |
+| 200 + at least one `is_servable=true` on the first page | `verified` / `billing_eligibility` / `eligible: true`. **Not** `exact_balance`. `billable_amount` is outstanding debt, not cash on hand. `credit_limit` is not treated as a spendable balance. |
+| 200 + none servable and no `next_url` | `verified` / `eligible: false` |
+| 200 + none servable and `pagination.next_url` present | `unknown` — incomplete page, **not** a verified zero |
+| 401/403 | `unavailable` |
+| 404, 429, 5xx, timeout, non-JSON | `unknown` — **not** a verified zero. Spend-increase refused. |
+
+### Mutations (v3)
+
+- Create (only after pixel + post GET + research + billing eligibility): `POST /ad_accounts/{id}/campaigns` with `objective=CLICKS`, `configured_status=ACTIVE`, `funding_instrument_id` from a servable instrument. Then `POST .../ad_groups` with `type=MANUAL`, `goal_type=DAILY_SPEND`, `goal_value` in **microcurrency** (`major * 1_000_000`), `bid_type=CPC`, `bid_strategy=BIDLESS`, `conversion_pixel_id` from config. Then `POST .../ads` with `ad_group_id`, `post_id`, and `click_url` equal to the caller `landingPageUrl`. Campaign-budget-optimization is **not** used.
+- Pause/resume: `PATCH /campaigns/{id}` `configured_status` `PAUSED`/`ACTIVE` after a GET ownership check. Pause does **not** query funding instruments.
+- Daily budget update: `PATCH /ad_groups/{id}` `goal_value` micros. Name-only updates skip an empty campaign PATCH. Refused if no ad-group mapping.
+- Landing URL update: `PATCH /ads/{id}` `click_url` only when `providerAdId` is mapped. Scaffold campaigns without an ad id are refused (`provider_prerequisites_missing`); the URL is not claimed as pushed.
+- 429: `provider_rate_limited`, **no retry**.
+- Timeout / 5xx on POST/PATCH: `outcome_ambiguous`, persisted, not retried as success.
+- Certain 4xx on ad-group create after a campaign id was returned: campaign mapping is persisted (so a retry does not create a second campaign); `providerAdGroupId` stays unset and remote daily budget is **not** claimed.
+
+### API assumptions and unknowns
+
+- Ad account ids look like `a2_…` / `t2_…` per docs. Not re-validated beyond “configured string matches command mapping”.
+- Minimal create body omits targeting/schedule/special ad categories. Reddit may 400; that is refused, not spoofed as success.
+- Funding-instrument 404 is treated as **unknown billing**, because we cannot prove the account has no funds.
+- As of 2026-07-13, official Create Ad Group docs require `conversion_pixel_id` for **all** ad groups. Missing/invalid `REDDIT_CONVERSION_PIXEL_ID` fails **before** any create POST. This process does **not** POST a campaign and then treat an expected 400 as documentation.
+- Create Ad Group’s example `goal_value: 75` disagrees with the field text (“microcurrency for monetary goal types”). This adapter sends micros (`12` → `12000000`). Live 400 on that field is refused, not retried as success.
+- Default User-Agent is `web:proba-ads:0.1.0 (internal Ads domain; no public user)`. Reddit asks for `platform:app:version (by /u/username)`. Operators should set `REDDIT_USER_AGENT` with a real Reddit username; this process will not invent one.
+- No OAuth refresh; operators rotate `REDDIT_ACCESS_TOKEN_FILE`. Token expiry is 401 fail-closed.
+- Microsoft/Google/Meta remain unconfigured.
+- Protocol Zod 4 is paired with released `v0.6.0`; this PR does not override zod.
+- Gateway “accepted artifact” guard and Hub/web destination URL capture remain **upstream**. This slice does not claim a built operator UI.
+- Ads does **not** create Reddit structured posts (`profile_id` + media are not in Ads args and are not invented). Missing `providerPostId` or GET 404 is fail-closed.
+- Targeting, schedule, and special ad categories are omitted from create bodies. Reddit may 400; that is refused, not spoofed as success.
+- `researchAcceptance` is not a Hub round-trip. A well-formed binding can still be a lie relative to Hub state.
+
+Tests inject `ScriptedHttpTransport`. CI and local tests must not call `ads-api.reddit.com`. No live ad spend.
+
+### Remaining Task 5 gaps
+
+- Live Reddit E2E is **not** claimed. Default adapter stays unconfigured.
+- Post/creative **creation** (profile + media upload) is out of this process.
+- Hub research-acceptance verification and operator URL capture remain other repos.
+- Targeting/schedule/GEO still omitted.
+- Microsoft/Google/Meta remain unconfigured.
+
+## 6. Reddit analytics (Task 6 — read-only)
+
+Official [Get a Report](https://ads-api.reddit.com/docs/v3/api/get-a-report) (`POST /ad_accounts/{id}/reports`, policy `ads-reporting`). This is a **read**. It does not create, pause, resume, or patch campaigns/ad groups/ads. Billing is not queried.
+
+`POST /v1/metrics-fetch` (gateway JWT + `Idempotency-Key`) loads the workspace/user/account/campaign mapping, `GET`s the remote campaign for ownership, then requests the report. Results are normalised with `validateMetricObservation` and written to `ads.audit_outbox` as protocol actions `metrics.fetch_started`, `metrics.ingested`, `campaign.metrics_attributed`, `metrics.fetch_completed` (or `metrics.fetch_failed`). Relay still `XADD`s `proba.audit.events`. There is **no** Ads metrics table and **no** second bus.
+
+| Mapping | Protocol `MetricObservation` |
+| --- | --- |
+| `IMPRESSIONS` / `CLICKS` | required ints; **null → quarantine, never 0** |
+| `SPEND` | divide by **1e6** (official microcurrency) |
+| `KEY_CONVERSION_TOTAL_COUNT` | required protocol `conversions`. Reddit field is **nullable**. Null/absent is quarantined with that prerequisite; **not** stored as 0 |
+| `CURRENCY` | ISO 4217 length 3; missing quarantined |
+| `DATE` / `DATETIME` | UTC day or hour bounds (`timezone: UTC` only in this slice) |
+| `REACH` / `VIDEO_VIEWABLE_IMPRESSIONS` | optional; omitted when absent |
+| `pagination.next_url` | followed only on the configured Ads API origin, cap `REDDIT_REPORT_MAX_PAGES` (default 10). Over-cap / off-origin / mid-window page failure → fetch **fails**; unread pages are **not** zeros |
+
+`filter=campaign:id=={mapped}`. Rows for any other `campaign_id` are quarantined. `time_zone_id=UTC` always. Non-UTC request timezone is refused so period bounds are not guessed.
+
+Campaign status/budget/mappings are not updated. Command ledger verb is `ads.fetch_metrics` (separate from `/v1/campaign-actions`).
+
+### Remaining gaps
+
+- Protocol `MetricValues.conversions` is required; Reddit conversion metrics are nullable. Rows without `KEY_CONVERSION_TOTAL_COUNT` cannot become observations.
+- Non-UTC Reddit reporting timezones are not mapped (local-midnight math not invented here).
+- Hour windows longer than 7 days and day windows longer than 31 days are refused.
+- Ads does not persist observations in Postgres; the durable copy is the audit stream for proba-audit/ClickHouse.
+- Live Reddit E2E is **not** claimed. Microsoft/Google/Meta analytics are unconfigured.
