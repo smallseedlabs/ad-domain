@@ -78,6 +78,8 @@ This checkout pins **#23’s head**, not the superseded `e310475…` and not a n
 
 That tree’s `package.json` is version **0.6.0** source (`zod@^4.6.7`, native `z.toJSONSchema(..., { target: "draft-07" })`, `validateAuditEvent` / `buildAuditEvent` names kept). It is **not** a release. npm installs that commit, not a tag. Protocol-side report: 255 local tests, 0 prod vulns, JSON Schema consumer fixture.
 
+Ads consumer (this PR) re-ran `npm test`, `npm audit --omit=dev` (**0** prod vulns), and added `tests/fixtures/ads-consumer-schema-contract.json` plus `src/protocol.schema.test.ts` so this service actually loads `@smallseedlabs/proba-protocol/schemas` (AuditEvent + MetricObservation required fields) against SHA `298eeb4…`. Reddit adapter [#3](https://github.com/smallseedlabs/ad-domain/pull/3) and analytics remain a **separate** stack; this PR does not merge them.
+
 Rejected still:
 
 | Option | Why not |
