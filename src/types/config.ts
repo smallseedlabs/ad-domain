@@ -50,5 +50,6 @@ export interface AdsServiceConfig {
         timeoutMs: number;
         userAgent: string;
         conversionPixelId?: string;
+        reportMaxPages?: number;
       };
 }

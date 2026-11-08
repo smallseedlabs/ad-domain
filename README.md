@@ -14,6 +14,7 @@ Gateway-only caller. Expected overlay hostname `ads`, port **3800**. Protocol au
 | GET | `/ready` | none. Postgres (and Redis when `AUDIT_PUBLISHER=redis`). **Not** billing. |
 | POST | `/v1/preflight` | Bearer EdDSA `aud=proba-ads` |
 | POST | `/v1/campaign-actions` | Bearer + `Idempotency-Key` |
+| POST | `/v1/metrics-fetch` | Bearer + `Idempotency-Key`. Read-only Reddit reports → protocol `MetricObservation` + existing audit outbox. **Not** a campaign mutation. |
 
 Unauthorized requests are rejected before domain work.
 

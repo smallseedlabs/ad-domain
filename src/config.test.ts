@@ -32,7 +32,10 @@ describe('config [unit]', () => {
       REDDIT_ACCESS_TOKEN: 'test-token-not-real',
     });
     expect(on.reddit.enabled).toBe(true);
-    if (on.reddit.enabled) expect(on.reddit.adAccountId).toBe('a2_test');
+    if (on.reddit.enabled) {
+      expect(on.reddit.adAccountId).toBe('a2_test');
+      expect(on.reddit.reportMaxPages).toBe(10);
+    }
     expect(() =>
       loadConfig({
         NODE_ENV: 'test',

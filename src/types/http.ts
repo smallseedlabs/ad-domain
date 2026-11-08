@@ -43,6 +43,23 @@ export const preflightRequestSchema = z
   .strict();
 export type PreflightRequest = z.infer<typeof preflightRequestSchema>;
 
+export const metricsFetchRequestSchema = z
+  .object({
+    traceId: z.string().uuid(),
+    workspaceId: z.string().min(1).max(256),
+    userId: z.string().uuid(),
+    goalId: z.string().uuid().optional(),
+    probaCampaignId: z.string().min(1).max(128),
+    periodStart: z.string().datetime(),
+    periodEnd: z.string().datetime(),
+    granularity: z.enum(['hour', 'day']).default('day'),
+    timezone: z.string().min(1).max(64).optional(),
+    idempotencyKey: z.string().min(1).max(128).optional(),
+    providerAccountId: z.string().min(1).max(128).optional(),
+  })
+  .strict();
+export type MetricsFetchRequest = z.infer<typeof metricsFetchRequestSchema>;
+
 export type AdsDomainResult =
   | {
       ok: true;
