@@ -2,7 +2,7 @@
 
 Internal Ads domain HTTP service for Proba campaign identity, mapping, and fail-closed provider modules.
 
-Internal Node 22.12+ / Fastify 5 / Vitest 5 service. It is **not** an end-to-end launch path: operator UI has no destination URL field, and provider adapters stay unconfigured on this branch (Reddit is a separate PR). Zod is **4.6.7**, paired with an explicit unmerged `proba-protocol` commit SHA — not a `v0.6.0` tag (see `docs/CONFIGURATION_AND_LIMITATIONS.md`).
+Internal Node 22.12+ / Fastify 5 / Vitest 5 service. It is **not** an end-to-end launch path: operator UI has no destination URL field, and provider adapters stay unconfigured on this branch (Reddit is a separate PR). Zod is **4.6.7**, paired with unmerged protocol SHA `298eeb4b4ba3fe14b4bf5077810ce2f433067984` (source 0.6.0) — not a `v0.6.0` tag (see `docs/CONFIGURATION_AND_LIMITATIONS.md`).
 
 ## What this process is
 

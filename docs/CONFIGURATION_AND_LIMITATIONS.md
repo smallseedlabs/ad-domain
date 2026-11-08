@@ -62,14 +62,21 @@ Do not treat this table as an exploitability proof.
 
 Protocol maintainers have **not** tagged or published `v0.6.0`. Pinning `github:smallseedlabs/proba-protocol#v0.6.0` would resolve to a **nonexistent tag** and is refused here.
 
-This checkout pins an **immutable git SHA** that exists on unmerged protocol [PR #23](https://github.com/smallseedlabs/proba-protocol/pull/23) (Zod 4 security migration), which is stacked on research [PR #22](https://github.com/smallseedlabs/proba-protocol/pull/22):
+Verified live heads (both open/mergeable; not tagged):
+
+| Protocol PR | Head | Base |
+| --- | --- | --- |
+| [#22](https://github.com/smallseedlabs/proba-protocol/pull/22) research | `d043b2f584b0d631d58b7c34a34c44f4b44f8f4b` | `main` |
+| [#23](https://github.com/smallseedlabs/proba-protocol/pull/23) Zod 4 source 0.6.0 | `298eeb4b4ba3fe14b4bf5077810ce2f433067984` | stacked on #22 |
+
+This checkout pins **#23’s head**, not the superseded `e310475…` and not a nonexistent `v0.6.0` tag:
 
 ```
-"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#e3104759066ba58f9c0cc6e437424c7f016bc812"
+"@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#298eeb4b4ba3fe14b4bf5077810ce2f433067984"
 "zod": "^4.6.7"
 ```
 
-That tree’s `package.json` is version **0.6.0** source (`zod@^4.6.7`, native `z.toJSONSchema(..., { target: "draft-07" })`, `validateAuditEvent` / `buildAuditEvent` names kept). It is **not** a release. npm installs that commit, not a tag.
+That tree’s `package.json` is version **0.6.0** source (`zod@^4.6.7`, native `z.toJSONSchema(..., { target: "draft-07" })`, `validateAuditEvent` / `buildAuditEvent` names kept). It is **not** a release. npm installs that commit, not a tag. Protocol-side report: 255 local tests, 0 prod vulns, JSON Schema consumer fixture.
 
 Rejected still:
 
@@ -80,7 +87,7 @@ Rejected still:
 | Edit `proba-protocol` / Hub / gateway / web in this run | Other workstream. Out of scope. |
 | Pin `#v0.6.0` | Tag does not exist. |
 
-**Release prerequisite (protocol owners, then a later Ads pin retarget):** merge protocol PR22 then PR23, tag `v0.6.0` (or whatever tag they choose) on a commit that is this SHA or a fast-forward of it, and only then change Ads to `github:smallseedlabs/proba-protocol#<tag>`. Until that tag exists, this SHA pin is the honest consumer dependency.
+**Release prerequisite (protocol owners, then a later Ads pin retarget):** merge protocol PR22 then PR23, tag `v0.6.0` (or whatever tag they choose) on a commit that is `298eeb4…` or a fast-forward of it, and only then change Ads to `github:smallseedlabs/proba-protocol#<tag>`. Until that tag exists, this SHA pin is the honest consumer dependency. Do not pin `e310475…` (superseded) or `#v0.6.0` (no such tag).
 
 **Merge order for this Ads PR:** Ads [#2](https://github.com/smallseedlabs/ad-domain/pull/2) (Fastify/Vitest) first, then this PR. Reddit adapter [#3](https://github.com/smallseedlabs/ad-domain/pull/3) is a **separate** stack on #2 and is not a parent of this branch. Protocol PRs are user-merged in the protocol repo; this pin works while they stay open because the SHA is already on GitHub.
 
