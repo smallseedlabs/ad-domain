@@ -1,0 +1,15 @@
+title = "ad-domain gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional fake secrets in tests, harnesses, and docs examples"
+paths = [
+  '''.*\.test\.ts$''',
+  '''.*\.testing\.ts$''',
+  '''.*\.integration\.test\.ts$''',
+  '''(^|/)README\.md$''',
+  '''(^|/)docs/.*\.md$''',
+  '''(^|/)\.env\.example$''',
+]
