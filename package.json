@@ -1,0 +1,50 @@
+{
+  "name": "@smallseedlabs/ad-domain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Proba Ads domain service: campaign identity, mapping, idempotent commands, and fail-closed provider modules. Gateway is the only caller.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc && mkdir -p dist/db/migrations && cp src/db/migrations/*.sql dist/db/migrations/",
+    "typecheck": "tsc -p tsconfig.check.json --noEmit",
+    "lint": "eslint src --ext .ts --max-warnings 0",
+    "test": "NODE_ENV=test vitest run",
+    "test:unit": "NODE_ENV=test vitest run",
+    "test:integration": "NODE_ENV=test vitest run --config vitest.integration.config.ts",
+    "test:all": "NODE_ENV=test vitest run --config vitest.integration.config.ts && NODE_ENV=test vitest run",
+    "migrate": "node dist/db/migrate-cli.js",
+    "start": "node dist/main.js"
+  },
+  "keywords": [
+    "proba",
+    "ads"
+  ],
+  "author": "Small Seed Labs",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@smallseedlabs/proba-protocol": "github:smallseedlabs/proba-protocol#v0.4.0",
+    "fastify": "^4.28.1",
+    "jose": "^5.10.0",
+    "pg": "^8.13.1",
+    "pino": "^9.3.2",
+    "redis": "^4.7.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/pg": "^8.11.10",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  },
+  "overrides": {
+    "tinypool": "2.2.0"
+  }
+}
