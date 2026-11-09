@@ -22,7 +22,7 @@ Internal Node **22.12+** / TypeScript / **Fastify 5** service (this process; sib
 | `ADS_PREFLIGHT_FRESHNESS_MS` | `15000` | 1000–300000 | |
 | `ADS_MAX_DAILY_BUDGET` | **unset (`null`)** | positive number if set | **not $2** |
 | `ADS_ALLOW_TEST_FAKES` | `false` | refused in production | FakeProvider inject only; also selects the test-only research fixture gate |
-| `ADS_RESEARCH_ACCEPTANCE_MODE` | `closed` | `closed` or `shape` | **shape refused in production**. Ads does not call Hub. `closed` fails create with `research_acceptance_unverified` even when the binding is well-formed |
+| `ADS_RESEARCH_ACCEPTANCE_MODE` | `closed` | `closed`, `shape` or `gateway_attested` | **shape refused in production**. Ads does not call Hub. `closed` fails create with `research_acceptance_unverified` even when the binding is well-formed. `gateway_attested` (opt-in, production allowed) accepts the authenticated gateway's `researchAttestation` (`status: accepted`, same landing URL, ≥1 source and finding); this is trust in the signed gateway, not an independent Hub lookup |
 | `INGRESS_PUBLIC=true` | refused | | |
 
 Health `/health` and readiness `/ready` do **not** query provider balances.
@@ -101,6 +101,8 @@ In-process module, not a separate deployment. Default remains `UnconfiguredProvi
 Public docs used (read-only, 2026-11-08): [Reddit Advertising API v3](https://ads-api.reddit.com/docs/v3/api/reddit-advertising-api), [OpenAPI](https://ads-api.reddit.com/api/v3/openapi.json), [Create Structured Post Creation Job](https://ads-api.reddit.com/docs/v3/api/create-structured-post-creation-job), [Get Structured Post Creation Job](https://ads-api.reddit.com/docs/v3/api/get-structured-post-creation-job), [Create Campaign](https://ads-api.reddit.com/docs/v3/api/create-campaign), [Create Ad Group](https://ads-api.reddit.com/docs/v3/api/create-ad-group), [Create Ad](https://ads-api.reddit.com/docs/v3/api/create-ad), [Get a Structured Post](https://ads-api.reddit.com/docs/v3/api/get-a-structured-post), [List Funding Instruments](https://ads-api.reddit.com/docs/v3/api/list-funding-instruments), [Campaign management](https://ads-api.reddit.com/docs/v3/guides/programs/campaign). v2 is sunset except CAPI. OAuth scopes used here: `adsread` / `adsedit`. `adsconversions` / `adsdatadeletion` are not called.
 
 ### Operational
+
+Step-by-step credential setup and a no-spend verification checklist: [`docs/REDDIT_CREDENTIALS.md`](REDDIT_CREDENTIALS.md).
 
 ```
 REDDIT_ADS_ENABLED=true

@@ -119,10 +119,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
     throw new ConfigError('ADS_ALLOW_TEST_FAKES is refused when NODE_ENV=production');
   }
   const researchAcceptanceModeRaw = (env.ADS_RESEARCH_ACCEPTANCE_MODE ?? 'closed').trim().toLowerCase();
-  if (researchAcceptanceModeRaw !== 'closed' && researchAcceptanceModeRaw !== 'shape') {
-    throw new ConfigError('ADS_RESEARCH_ACCEPTANCE_MODE must be closed or shape');
+  if (
+    researchAcceptanceModeRaw !== 'closed' &&
+    researchAcceptanceModeRaw !== 'shape' &&
+    researchAcceptanceModeRaw !== 'gateway_attested'
+  ) {
+    throw new ConfigError('ADS_RESEARCH_ACCEPTANCE_MODE must be closed, shape or gateway_attested');
   }
-  const researchAcceptanceMode = researchAcceptanceModeRaw as 'closed' | 'shape';
+  const researchAcceptanceMode = researchAcceptanceModeRaw as 'closed' | 'shape' | 'gateway_attested';
   if (nodeEnv === 'production' && researchAcceptanceMode === 'shape') {
     throw new ConfigError(
       'ADS_RESEARCH_ACCEPTANCE_MODE=shape is refused when NODE_ENV=production; Ads does not treat a well-formed binding as Hub-accepted'
