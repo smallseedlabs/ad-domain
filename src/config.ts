@@ -67,6 +67,9 @@ function loadRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServi
   }
   const enabled = envBool(env, 'REDDIT_ADS_ENABLED', false);
   if (!enabled) return { enabled: false };
+  const tokenSource = (env.REDDIT_TOKEN_SOURCE ?? 'file').trim().toLowerCase();
+  if (tokenSource !== 'file' && tokenSource !== 'broker') throw new ConfigError('REDDIT_TOKEN_SOURCE must be file or broker');
+  if (tokenSource === 'broker') return loadBrokeredRedditConfig(env, nodeEnv);
   const adAccountId = (env.REDDIT_AD_ACCOUNT_ID ?? '').trim();
   const accessToken = envSecret(env, 'REDDIT_ACCESS_TOKEN');
   if (!adAccountId) throw new ConfigError('REDDIT_AD_ACCOUNT_ID is required when REDDIT_ADS_ENABLED=true');
@@ -86,6 +89,7 @@ function loadRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServi
   }
   return {
     enabled: true,
+    tokenSource: 'file',
     adAccountId,
     accessToken,
     apiBaseUrl,
@@ -93,6 +97,69 @@ function loadRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServi
     userAgent: (env.REDDIT_USER_AGENT ?? REDDIT_USER_AGENT).trim() || REDDIT_USER_AGENT,
     conversionPixelId,
     reportMaxPages: envInt(env, 'REDDIT_REPORT_MAX_PAGES', 10, 1, 50),
+  };
+}
+
+function redditCommon(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv) {
+  const apiBaseUrl = (env.REDDIT_ADS_API_BASE_URL ?? REDDIT_ADS_API_BASE).trim() || REDDIT_ADS_API_BASE;
+  if (!apiBaseUrl.startsWith('https://') && nodeEnv === 'production') {
+    throw new ConfigError('REDDIT_ADS_API_BASE_URL must be https in production');
+  }
+  const conversionPixelId = redditConversionPixelId(env.REDDIT_CONVERSION_PIXEL_ID);
+  if ((env.REDDIT_CONVERSION_PIXEL_ID ?? '').trim() && !conversionPixelId) {
+    throw new ConfigError('REDDIT_CONVERSION_PIXEL_ID is set but is not a valid Reddit pixel id');
+  }
+  return {
+    apiBaseUrl,
+    timeoutMs: envInt(env, 'REDDIT_HTTP_TIMEOUT_MS', 10_000, 500, 60_000),
+    userAgent: (env.REDDIT_USER_AGENT ?? REDDIT_USER_AGENT).trim() || REDDIT_USER_AGENT,
+    conversionPixelId,
+    reportMaxPages: envInt(env, 'REDDIT_REPORT_MAX_PAGES', 10, 1, 50),
+  };
+}
+
+/**
+ * REDDIT_TOKEN_SOURCE=broker: no token or account in this service's environment. Each
+ * provider call asks the Hub connection broker for the workspace's short-lived access token
+ * and connected account. The client secret and refresh token never reach Ads.
+ */
+function loadBrokeredRedditConfig(env: NodeJS.ProcessEnv, nodeEnv: RuntimeEnv): AdsServiceConfig['reddit'] {
+  if (env.REDDIT_ACCESS_TOKEN || env.REDDIT_ACCESS_TOKEN_FILE) {
+    throw new ConfigError('REDDIT_TOKEN_SOURCE=broker gets tokens from the connection broker; unset REDDIT_ACCESS_TOKEN(_FILE)');
+  }
+  if ((env.REDDIT_AD_ACCOUNT_ID ?? '').trim()) {
+    throw new ConfigError('REDDIT_TOKEN_SOURCE=broker uses the account chosen in Marketing; unset REDDIT_AD_ACCOUNT_ID');
+  }
+  const url = (env.CONNECTION_BROKER_URL ?? '').trim().replace(/\/+$/, '');
+  if (!url) throw new ConfigError('CONNECTION_BROKER_URL is required when REDDIT_TOKEN_SOURCE=broker');
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ConfigError('CONNECTION_BROKER_URL is not a URL');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new ConfigError('CONNECTION_BROKER_URL must be http(s)');
+  if (parsed.username || parsed.password) throw new ConfigError('CONNECTION_BROKER_URL must not carry credentials');
+  const allowedHosts = envList(env, 'CONNECTION_BROKER_ALLOWED_HOSTS', []).map((h) => h.toLowerCase());
+  if (nodeEnv === 'production' && allowedHosts.length === 0) {
+    throw new ConfigError('CONNECTION_BROKER_ALLOWED_HOSTS is required in production (e.g. hub:3000)');
+  }
+  if (allowedHosts.length > 0 && !allowedHosts.includes(parsed.host.toLowerCase()) && !allowedHosts.includes(parsed.hostname.toLowerCase())) {
+    throw new ConfigError(`CONNECTION_BROKER_URL host ${parsed.host} is not in CONNECTION_BROKER_ALLOWED_HOSTS`);
+  }
+  const privateKeyFile = (env.ADS_SERVICE_PRIVATE_KEY_FILE ?? '').trim();
+  if (!privateKeyFile) throw new ConfigError('ADS_SERVICE_PRIVATE_KEY_FILE is required when REDDIT_TOKEN_SOURCE=broker');
+  return {
+    enabled: true,
+    tokenSource: 'broker',
+    broker: {
+      url,
+      allowedHosts,
+      privateKeyFile,
+      keyId: (env.ADS_SERVICE_KEY_ID ?? 'ads-svc-1').trim() || 'ads-svc-1',
+      timeoutMs: envInt(env, 'CONNECTION_BROKER_TIMEOUT_MS', 5_000, 500, 30_000),
+    },
+    ...redditCommon(env, nodeEnv),
   };
 }
 

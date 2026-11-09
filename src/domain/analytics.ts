@@ -13,6 +13,7 @@ import { requestFingerprint } from '../store/fingerprint.js';
 import type { AdsServiceConfig } from '../types/config.js';
 import type { AdsDomainResult, MetricsFetchRequest } from '../types/http.js';
 import { adsAuditEvent } from '../audit/emit.js';
+import { attributionDetails } from '../providers/attribution.js';
 import { REDDIT_REPORT_DEFAULT_MAX_PAGES } from '../providers/reddit/config.js';
 
 const MAX_DAY_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
@@ -226,6 +227,7 @@ async function executeOnce(
   const query: MetricsFetchQuery = {
     workspaceId: request.workspaceId,
     userId: request.userId,
+    initiatedBy: request.initiatedBy ?? 'user',
     probaCampaignId: campaign.probaCampaignId,
     providerAccountId: campaign.providerAccountId!,
     providerCampaignId: campaign.providerCampaignId!,
@@ -242,16 +244,17 @@ async function executeOnce(
 
   const outcome = await deps.provider.fetchCampaignMetrics(query);
   const durationMs = Math.max(0, deps.clock.now().getTime() - startedAt);
+  const actor = attributionDetails(request.initiatedBy, outcome.attribution);
 
   return deps.store.withTransaction(async (tx) => {
     if (outcome.kind === 'unconfigured') {
       const result = fail('provider_unconfigured', outcome.message);
-      await completeFailed(tx, deps, request, idempotencyKey, campaign, result, durationMs);
+      await completeFailed(tx, deps, request, idempotencyKey, campaign, result, durationMs, actor);
       return result;
     }
     if (outcome.kind === 'refused') {
       const result = fail(outcome.code, outcome.message);
-      await completeFailed(tx, deps, request, idempotencyKey, campaign, result, durationMs);
+      await completeFailed(tx, deps, request, idempotencyKey, campaign, result, durationMs, actor);
       return result;
     }
 
@@ -331,6 +334,7 @@ async function executeOnce(
           observationCount: ingested,
           quarantinedCount: quarantined,
           pages: outcome.pages,
+          ...actor,
         },
       })
     );
@@ -352,6 +356,7 @@ async function executeOnce(
           pages: outcome.pages,
           durationMs,
           campaignMutated: false,
+          ...actor,
         },
       })
     );
@@ -405,7 +410,8 @@ async function completeFailed(
   idempotencyKey: string,
   campaign: CampaignRecord,
   result: Extract<AdsDomainResult, { ok: false }>,
-  durationMs: number
+  durationMs: number,
+  actor: Record<string, unknown> = {}
 ): Promise<void> {
   await tx.completeCommand({
     workspaceId: request.workspaceId,
@@ -424,7 +430,7 @@ async function completeFailed(
       campaignId: campaign.probaCampaignId,
       clock: deps.clock,
       errorCode: result.code,
-      details: { verb: METRICS_FETCH_VERB, durationMs, campaignMutated: false },
+      details: { verb: METRICS_FETCH_VERB, durationMs, campaignMutated: false, ...actor },
     })
   );
 }

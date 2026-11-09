@@ -26,6 +26,8 @@ export const campaignActionRequestSchema = z
     idempotencyKey: z.string().min(1).max(128).optional(),
     decisionId: z.string().min(1).max(128).optional(),
     commandId: z.string().min(1).max(128).optional(),
+    /** user (default): the owner approved this action; policy: an owner-delegated action policy. */
+    initiatedBy: z.enum(['user', 'policy', 'system']).optional(),
   })
   .strict();
 export type CampaignActionRequest = z.infer<typeof campaignActionRequestSchema>;
@@ -56,6 +58,7 @@ export const metricsFetchRequestSchema = z
     timezone: z.string().min(1).max(64).optional(),
     idempotencyKey: z.string().min(1).max(128).optional(),
     providerAccountId: z.string().min(1).max(128).optional(),
+    initiatedBy: z.enum(['user', 'policy', 'system']).optional(),
   })
   .strict();
 export type MetricsFetchRequest = z.infer<typeof metricsFetchRequestSchema>;

@@ -43,7 +43,7 @@ describe('config [unit]', () => {
       REDDIT_ACCESS_TOKEN: 'test-token-not-real',
     });
     expect(on.reddit.enabled).toBe(true);
-    if (on.reddit.enabled) {
+    if (on.reddit.enabled && on.reddit.tokenSource === 'file') {
       expect(on.reddit.adAccountId).toBe('a2_test');
       expect(on.reddit.reportMaxPages).toBe(10);
     }
@@ -57,5 +57,21 @@ describe('config [unit]', () => {
         REDDIT_CONVERSION_PIXEL_ID: 'not a pixel',
       })
     ).toThrow(ConfigError);
+  });
+});
+
+describe('REDDIT_TOKEN_SOURCE=broker', () => {
+  const base = { NODE_ENV: 'test', AUDIT_PUBLISHER: 'log', REDDIT_ADS_ENABLED: 'true', REDDIT_TOKEN_SOURCE: 'broker' };
+  it('needs the broker URL and service key, and no token or account in env', () => {
+    const on = loadConfig({ ...base, CONNECTION_BROKER_URL: 'http://hub:3000/', ADS_SERVICE_PRIVATE_KEY_FILE: '/run/keys/ads.pem' });
+    expect(on.reddit).toMatchObject({ enabled: true, tokenSource: 'broker', broker: { url: 'http://hub:3000', keyId: 'ads-svc-1' } });
+    expect(() => loadConfig({ ...base, ADS_SERVICE_PRIVATE_KEY_FILE: '/k' })).toThrow(/CONNECTION_BROKER_URL/);
+    expect(() => loadConfig({ ...base, CONNECTION_BROKER_URL: 'http://hub:3000' })).toThrow(/ADS_SERVICE_PRIVATE_KEY_FILE/);
+    const ok = { ...base, CONNECTION_BROKER_URL: 'http://hub:3000', ADS_SERVICE_PRIVATE_KEY_FILE: '/k' };
+    expect(() => loadConfig({ ...ok, REDDIT_ACCESS_TOKEN: 'test-token-not-real' })).toThrow(/unset REDDIT_ACCESS_TOKEN/);
+    expect(() => loadConfig({ ...ok, REDDIT_AD_ACCOUNT_ID: 'a2_x' })).toThrow(/unset REDDIT_AD_ACCOUNT_ID/);
+    expect(() => loadConfig({ ...ok, REDDIT_CLIENT_SECRET: 'x' })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...ok, CONNECTION_BROKER_ALLOWED_HOSTS: 'other:3000' })).toThrow(/not in CONNECTION_BROKER_ALLOWED_HOSTS/);
+    expect(() => loadConfig({ ...base, REDDIT_TOKEN_SOURCE: 'magic' })).toThrow(/file or broker/);
   });
 });
