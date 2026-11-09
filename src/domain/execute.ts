@@ -13,6 +13,7 @@ import {
 import type { Clock } from '../ports/clock.js';
 import type { VerifiedCaller } from '../ports/auth.js';
 import type { ProviderAdapter, ProviderMapping } from '../providers/port.js';
+import { attributionDetails } from '../providers/attribution.js';
 import type { AdsStore, AdsTx, CampaignRecord, CommandRecord } from '../store/port.js';
 import { requestFingerprint } from '../store/fingerprint.js';
 import type { AdsServiceConfig } from '../types/config.js';
@@ -128,6 +129,33 @@ export async function executeCampaignAction(
   return run;
 }
 
+/**
+ * Broker mode: make the workspace's Reddit account mapping follow the connection chosen in
+ * the Marketing section. The connected account becomes the one ready mapping; any other
+ * Reddit mapping is marked unauthorized. If the broker cannot be reached, nothing changes.
+ */
+export async function syncProviderAccount(deps: Pick<ExecuteDeps, 'store' | 'provider'>, workspaceId: string): Promise<void> {
+  if (!deps.provider.syncAccountMapping || deps.provider.name !== 'reddit') return;
+  let current: { accountId: string; connectionId: string } | null | undefined;
+  try {
+    current = await deps.provider.syncAccountMapping(workspaceId);
+  } catch {
+    return;
+  }
+  if (current === undefined) return;
+  await deps.store.withTransaction(async (tx) => {
+    const rows = await tx.listAccounts(workspaceId, 'reddit');
+    for (const row of rows) {
+      if (row.accountId !== current?.accountId && row.status === 'ready') {
+        await tx.upsertAccount({ ...row, status: 'unauthorized' });
+      }
+    }
+    if (current && !rows.some((r) => r.accountId === current.accountId && r.status === 'ready')) {
+      await tx.upsertAccount({ workspaceId, platform: 'reddit', accountId: current.accountId, status: 'ready' });
+    }
+  });
+}
+
 async function executeOnce(
   deps: ExecuteDeps,
   request: CampaignActionRequest,
@@ -145,6 +173,8 @@ async function executeOnce(
   }
   const spendClass = spendClassFor(args.verb, request.args);
   const fingerprint = requestFingerprint(args.verb, { ...request.args, goalId: request.goalId });
+
+  await syncProviderAccount(deps, request.workspaceId);
 
   const prepared = await deps.store.withTransaction(async (tx) => {
     const claim = await tx.claimCommand({
@@ -319,6 +349,7 @@ async function executeOnce(
   const outcome = await deps.provider.mutate({
     workspaceId: request.workspaceId,
     userId: request.userId,
+    initiatedBy: request.initiatedBy ?? 'user',
     verb: parsed.verb,
     args: parsed,
     platform: campaign.platform,
@@ -381,7 +412,11 @@ async function executeOnce(
           campaignId: current.probaCampaignId,
           clock: deps.clock,
           errorCode: 'outcome_ambiguous',
-          details: { verb: parsed.verb, note: 'uncertain outcome persisted; command will not be replayed' },
+          details: {
+            verb: parsed.verb,
+            note: 'uncertain outcome persisted; command will not be replayed',
+            ...attributionDetails(request.initiatedBy, outcome.attribution),
+          },
         })
       );
       throw new AmbiguousOutcomeError(outcome.message);
@@ -389,6 +424,19 @@ async function executeOnce(
 
     if (outcome.kind === 'refused') {
       const result = fail(outcome.code, outcome.message);
+      await tx.enqueueAudit(
+        adsAuditEvent({
+          action: 'command.rejected',
+          outcome: 'failure',
+          traceId: request.traceId,
+          workspaceId: request.workspaceId,
+          userId: request.userId,
+          campaignId: current.probaCampaignId,
+          clock: deps.clock,
+          errorCode: outcome.code,
+          details: { verb: parsed.verb, refusedBy: 'provider', ...attributionDetails(request.initiatedBy, outcome.attribution) },
+        })
+      );
       await tx.updateCampaignCas(request.workspaceId, current.probaCampaignId, current.version, {
         lockCommandKey: null,
         status: current.status,
@@ -461,6 +509,7 @@ async function executeOnce(
           verb: parsed.verb,
           version: updated.version,
           platform: updated.platform,
+          ...attributionDetails(request.initiatedBy, outcome.attribution),
           landingPageUrlLength: updated.landingPageUrl.length,
           ...(deliverable
             ? {
@@ -488,7 +537,7 @@ async function executeOnce(
         userId: request.userId,
         campaignId: updated.probaCampaignId,
         clock: deps.clock,
-        details: { verb: parsed.verb, version: updated.version },
+        details: { verb: parsed.verb, version: updated.version, ...attributionDetails(request.initiatedBy, outcome.attribution) },
       })
     );
     return result;

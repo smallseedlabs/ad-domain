@@ -44,14 +44,35 @@ export interface AdsServiceConfig {
   };
   reddit:
     | { enabled: false }
-    | {
+    | ({
         enabled: true;
+        /** file: one static bearer token for one account (local debugging). */
+        tokenSource: 'file';
         adAccountId: string;
         accessToken: string;
-        apiBaseUrl: string;
-        timeoutMs: number;
-        userAgent: string;
-        conversionPixelId?: string;
-        reportMaxPages?: number;
-      };
+      } & RedditCommonConfig)
+    | ({
+        enabled: true;
+        /** broker: short-lived tokens and the account from the Hub connection broker, per workspace. */
+        tokenSource: 'broker';
+        broker: ConnectionBrokerConfig;
+      } & RedditCommonConfig);
+}
+
+export interface RedditCommonConfig {
+  apiBaseUrl: string;
+  timeoutMs: number;
+  userAgent: string;
+  conversionPixelId?: string;
+  reportMaxPages?: number;
+}
+
+export interface ConnectionBrokerConfig {
+  /** Hub base URL, e.g. http://hub:3000 (POST /v1/internal/connections/:provider/access-token). */
+  url: string;
+  allowedHosts: string[];
+  /** Ed25519 PKCS#8 PEM; Ads signs iss proba-ads, aud proba-hub, sub ads. */
+  privateKeyFile: string;
+  keyId: string;
+  timeoutMs: number;
 }

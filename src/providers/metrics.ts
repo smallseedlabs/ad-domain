@@ -14,6 +14,7 @@ export interface MetricsFetchQuery {
   timezone: string;
   fetchedAt: string;
   reportMaxPages: number;
+  initiatedBy?: import('./port.js').ActionInitiator;
 }
 
 export interface QuarantinedMetricRow {
@@ -23,7 +24,7 @@ export interface QuarantinedMetricRow {
   fields?: string[];
 }
 
-export type MetricsFetchOutcome =
+export type MetricsFetchOutcome = (
   | {
       kind: 'ok';
       observations: MetricObservation[];
@@ -31,4 +32,5 @@ export type MetricsFetchOutcome =
       pages: number;
     }
   | { kind: 'refused'; code: string; message: string }
-  | { kind: 'unconfigured'; message: string };
+  | { kind: 'unconfigured'; message: string }
+) & { attribution?: import('./port.js').ProviderAttribution };

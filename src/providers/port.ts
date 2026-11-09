@@ -16,11 +16,29 @@ export interface ProviderMapping {
   missingEntities?: readonly string[];
 }
 
-export type ProviderOutcome =
+/**
+ * Which credential a provider call ran on: recorded on audit events so every campaign
+ * action and metrics pull is traceable to the provider connection and account it used.
+ * Never contains a token.
+ */
+export interface ProviderAttribution {
+  source: 'broker' | 'file';
+  providerAccountId: string;
+  /** Hub platform connection id (broker only). */
+  connectionId?: string;
+  /** Hub user who connected the provider account (broker only). */
+  connectedBy?: string;
+}
+
+export type ProviderOutcome = (
   | { kind: 'success'; mapping: ProviderMapping }
   | { kind: 'refused'; code: string; message: string }
   | { kind: 'ambiguous'; code: string; message: string }
-  | { kind: 'unconfigured'; message: string };
+  | { kind: 'unconfigured'; message: string }
+) & { attribution?: ProviderAttribution };
+
+/** user: an owner action or approval; policy: an owner-delegated action policy; system: Ads itself. */
+export type ActionInitiator = 'user' | 'policy' | 'system';
 
 export interface ProviderCommand {
   workspaceId: string;
@@ -34,6 +52,7 @@ export interface ProviderCommand {
   providerCampaignId?: string;
   providerAdGroupId?: string;
   providerAdId?: string;
+  initiatedBy?: ActionInitiator;
 }
 
 export interface ProviderAdapter {
@@ -54,4 +73,10 @@ export interface ProviderAdapter {
   billingClaim(workspaceId: string, platform?: AdPlatform): Promise<AdsBillingClaim>;
   /** Read-only metrics pull. Must not create/pause/resume/update campaigns. */
   fetchCampaignMetrics(query: MetricsFetchQuery): Promise<MetricsFetchOutcome>;
+  /**
+   * Broker-backed adapters: the account the workspace's connection is on right now.
+   * null = not connected / no account chosen (mappings are marked disconnected);
+   * undefined = unknown right now (mappings are left unchanged).
+   */
+  syncAccountMapping?(workspaceId: string): Promise<{ accountId: string; connectionId: string } | null | undefined>;
 }
