@@ -228,6 +228,8 @@ async function executeOnce(
         binding: args.researchAcceptance,
         workspaceId: request.workspaceId,
         goalId: request.goalId,
+        attestation: args.researchAttestation,
+        landingPageUrl: args.landingPageUrl,
       });
       if (!verified.ok) {
         const result = fail(verified.code, verified.message);

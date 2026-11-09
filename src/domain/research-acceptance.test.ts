@@ -4,6 +4,7 @@ import { FIXTURE_RESEARCH_ACCEPTANCE } from '../testing/config.js';
 import {
   ClosedResearchAcceptanceGate,
   FixtureResearchAcceptanceGate,
+  GatewayAttestedResearchAcceptanceGate,
   ShapeOnlyResearchAcceptanceGate,
   researchAcceptanceGateFromConfig,
 } from './research-acceptance.js';
@@ -42,5 +43,31 @@ describe('research acceptance gate [unit]', () => {
     );
     expect(shape).toBeInstanceOf(ShapeOnlyResearchAcceptanceGate);
     expect(shape.verify(input).ok).toBe(true);
+  });
+
+  it('gateway_attested accepts only an accepted attestation for the exact landing URL (opt-in, prod allowed)', () => {
+    const url = 'https://example.com/offer';
+    const attestation = {
+      status: 'accepted' as const,
+      landingPageUrl: url,
+      acceptedAt: '2026-11-09T10:00:00.000Z',
+      sourceCount: 1,
+      findingCount: 2,
+    };
+    const gate = new GatewayAttestedResearchAcceptanceGate();
+    expect(gate.verify({ ...input, attestation, landingPageUrl: url })).toEqual({ ok: true, mode: 'gateway_attested' });
+    expect(gate.verify({ ...input, landingPageUrl: url }).ok).toBe(false);
+    expect(gate.verify({ ...input, attestation, landingPageUrl: 'https://example.com/other' }).ok).toBe(false);
+    expect(gate.verify({ ...input, attestation: { ...attestation, sourceCount: 0 }, landingPageUrl: url }).ok).toBe(false);
+
+    const fromConfig = researchAcceptanceGateFromConfig(
+      loadConfig({ NODE_ENV: 'test', AUDIT_PUBLISHER: 'log', ADS_RESEARCH_ACCEPTANCE_MODE: 'gateway_attested' })
+    );
+    expect(fromConfig).toBeInstanceOf(GatewayAttestedResearchAcceptanceGate);
+    // Default stays closed.
+    expect(researchAcceptanceGateFromConfig(loadConfig({ NODE_ENV: 'test', AUDIT_PUBLISHER: 'log' }))).toBeInstanceOf(
+      ClosedResearchAcceptanceGate
+    );
+    expect(() => loadConfig({ NODE_ENV: 'test', AUDIT_PUBLISHER: 'log', ADS_RESEARCH_ACCEPTANCE_MODE: 'open' })).toThrow();
   });
 });

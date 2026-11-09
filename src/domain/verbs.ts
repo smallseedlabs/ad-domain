@@ -23,6 +23,18 @@ export function spendClassFor(verb: string, args: Record<string, unknown>): Spen
   return 'spend_increase';
 }
 
+/** Gateway attestation for the accepted research artifact (see research-acceptance.ts). */
+export const researchAttestationSchema = z
+  .object({
+    status: z.literal('accepted'),
+    landingPageUrl: z.string().min(1).max(2048),
+    acceptedAt: z.iso.datetime(),
+    sourceCount: z.number().int().nonnegative().max(64),
+    findingCount: z.number().int().nonnegative().max(64),
+  })
+  .strict();
+export type ResearchAttestation = z.infer<typeof researchAttestationSchema>;
+
 const createArgsSchema = z
   .object({
     name: z.string().min(1).max(200),
@@ -38,6 +50,7 @@ const createArgsSchema = z
     targeting: z.unknown().optional(),
     schedule: z.unknown().optional(),
     researchAcceptance: researchAcceptanceBindingSchema,
+    researchAttestation: researchAttestationSchema.optional(),
   })
   .strict();
 
@@ -76,6 +89,7 @@ export interface ParsedAdsArgs {
   targeting?: AdsTargeting;
   schedule?: AdsSchedule;
   researchAcceptance?: ResearchAcceptanceBinding;
+  researchAttestation?: ResearchAttestation;
 }
 
 export function parseVerbArgs(verb: string, raw: Record<string, unknown>): ParsedAdsArgs {
@@ -116,6 +130,12 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
       targeting: parseAdsTargeting(parsed.data.targeting),
       schedule: parseAdsSchedule(parsed.data.schedule),
       researchAcceptance: parsed.data.researchAcceptance,
+      researchAttestation: parsed.data.researchAttestation
+        ? {
+            ...parsed.data.researchAttestation,
+            landingPageUrl: assertLandingPageUrl(parsed.data.researchAttestation.landingPageUrl),
+          }
+        : undefined,
     };
   }
   if (name === 'ads.update_campaign') {

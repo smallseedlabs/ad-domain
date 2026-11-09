@@ -143,6 +143,39 @@ describe('executeCampaignAction [fake-store]', () => {
     }
   });
 
+  it('gateway_attested mode creates only with an accepted gateway attestation for the same URL [fake-provider]', async () => {
+    const fake = new FakeProvider();
+    fake.billing = eligibleBillingClaim();
+    const store = new MemoryStore();
+    await store.withTransaction((tx) =>
+      tx.upsertAccount({ workspaceId: FIXTURE_WORKSPACE, platform: 'reddit', accountId: fake.accountId, status: 'ready' })
+    );
+    const deps = {
+      config: testConfig({ ADS_RESEARCH_ACCEPTANCE_MODE: 'gateway_attested' }),
+      store,
+      provider: fake,
+      clock: new SystemClock(),
+    };
+    const missing = await executeCampaignAction(deps, createReq(), caller(), randomUUID());
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe('research_acceptance_unverified');
+    const attested = await executeCampaignAction(
+      deps,
+      createReq({}, {
+        researchAttestation: {
+          status: 'accepted',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          acceptedAt: '2026-11-09T10:00:00.000Z',
+          sourceCount: 1,
+          findingCount: 1,
+        },
+      }),
+      caller(),
+      randomUUID()
+    );
+    expect(attested.ok).toBe(true);
+  });
+
   it('replays the same idempotency key and rejects different args', async () => {
     const fake = new FakeProvider();
     fake.billing = eligibleBillingClaim();
