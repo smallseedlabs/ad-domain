@@ -12,6 +12,8 @@ import type {
   ProviderAccountRecord,
 } from './port.js';
 
+import { METRICS_SYNC_STATUSES } from './port.js';
+
 pg.types.setTypeParser(20, (val) => parseInt(val, 10));
 pg.types.setTypeParser(1700, (val) => Number(val));
 
@@ -214,6 +216,18 @@ export class PostgresStore implements AdsStore {
     } finally {
       client.release();
     }
+  }
+
+  async listMetricsSyncTargets(platform: AdPlatform, limit: number): Promise<CampaignRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM ads.campaigns
+        WHERE platform = $1 AND status = ANY($2::text[])
+          AND provider_campaign_id IS NOT NULL AND provider_account_id IS NOT NULL
+        ORDER BY workspace_id, proba_campaign_id
+        LIMIT $3`,
+      [platform, [...METRICS_SYNC_STATUSES], limit]
+    );
+    return result.rows.map(asCampaign);
   }
 
   async ping(): Promise<void> {
