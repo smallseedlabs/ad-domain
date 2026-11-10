@@ -217,6 +217,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
     throw new ConfigError('ADS_MAX_DAILY_BUDGET_CURRENCY must be a 3-letter code when set');
   }
 
+  const reddit = loadRedditConfig(env, nodeEnv);
+  const metricsSyncEnabled = envBool(env, 'ADS_METRICS_SYNC_ENABLED', false);
+  if (metricsSyncEnabled && !reddit.enabled) {
+    throw new ConfigError('ADS_METRICS_SYNC_ENABLED=true needs the Reddit adapter (REDDIT_ADS_ENABLED=true); nothing else can be synced');
+  }
+
   return {
     env: nodeEnv,
     logLevel: (env.LOG_LEVEL ?? 'info').trim() || 'info',
@@ -255,6 +261,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
       allowTestFakes,
       researchAcceptanceMode,
     },
-    reddit: loadRedditConfig(env, nodeEnv),
+    metricsSync: {
+      enabled: metricsSyncEnabled,
+      intervalMs: envInt(env, 'ADS_METRICS_SYNC_INTERVAL_SECONDS', 3600, 300, 86_400) * 1000,
+      initialDelayMs: envInt(env, 'ADS_METRICS_SYNC_INITIAL_DELAY_SECONDS', 60, 0, 3600) * 1000,
+      lookbackDays: envInt(env, 'ADS_METRICS_SYNC_LOOKBACK_DAYS', 2, 1, 30),
+      maxCampaignsPerRun: envInt(env, 'ADS_METRICS_SYNC_MAX_CAMPAIGNS', 50, 1, 500),
+    },
+    reddit,
   };
 }

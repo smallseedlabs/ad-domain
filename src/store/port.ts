@@ -83,8 +83,16 @@ export interface AdsTx {
   enqueueAudit(event: AuditEvent): Promise<void>;
 }
 
+/** Campaign statuses the metrics sync reads reports for (read-only; never drafts, failed or ambiguous rows). */
+export const METRICS_SYNC_STATUSES: readonly CampaignStatus[] = ['active', 'paused'];
+
 export interface AdsStore {
   withTransaction<T>(fn: (tx: AdsTx) => Promise<T>): Promise<T>;
+  /**
+   * Campaigns with a provider campaign + account mapping on this platform, in a sync status,
+   * across workspaces (the scheduler then scopes each fetch to the row's own workspace and user).
+   */
+  listMetricsSyncTargets(platform: AdPlatform, limit: number): Promise<CampaignRecord[]>;
   ping(): Promise<void>;
   close(): Promise<void>;
   claimOutbox?(limit: number, leaseMs: number): Promise<Array<{ id: string; event: AuditEvent }>>;

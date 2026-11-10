@@ -8,6 +8,7 @@ import { createRuntime } from './runtime.js';
 import { buildApp } from './http/app.js';
 import { ConfigError } from './errors.js';
 import { adsAuditEvent } from './audit/emit.js';
+import { MetricsSyncScheduler } from './domain/metrics-sync.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -43,6 +44,27 @@ async function main(): Promise<void> {
   await app.listen({ port: config.listen.port, host: config.listen.host });
   runtime.logger.info({ port: config.listen.port, host: config.listen.host }, 'ad-domain listening');
 
+  // Read-only scheduled Reddit report sync; off unless ADS_METRICS_SYNC_ENABLED=true.
+  const metricsSync = new MetricsSyncScheduler({
+    config,
+    store: runtime.store,
+    provider: runtime.provider,
+    clock: runtime.clock,
+    logger: runtime.logger,
+  });
+  metricsSync.start();
+  runtime.logger.info(
+    metricsSync.enabled
+      ? {
+          metricsSync: 'enabled',
+          intervalSeconds: config.metricsSync.intervalMs / 1000,
+          firstRunInSeconds: config.metricsSync.initialDelayMs / 1000,
+          lookbackDays: config.metricsSync.lookbackDays,
+        }
+      : { metricsSync: 'disabled' },
+    'metrics sync scheduler'
+  );
+
   const shutdown = async (signal: string) => {
     runtime.logger.info({ signal }, 'shutting down');
     try {
@@ -59,6 +81,7 @@ async function main(): Promise<void> {
     } catch {
       // best-effort
     }
+    await metricsSync.stop();
     clearInterval(relay);
     await app.close();
     await runtime.close();

@@ -213,6 +213,25 @@ Official [Get a Report](https://ads-api.reddit.com/docs/v3/api/get-a-report) (`P
 
 Campaign status/budget/mappings are not updated. Command ledger verb is `ads.fetch_metrics` (separate from `/v1/campaign-actions`).
 
+### Scheduled sync (off by default)
+
+`ADS_METRICS_SYNC_ENABLED=true` (needs `REDDIT_ADS_ENABLED=true`) starts an in-process scheduler (`src/domain/metrics-sync.ts`). Each run:
+
+- lists campaigns with a Reddit campaign + account mapping and status `active` or `paused` (all workspaces, capped by `ADS_METRICS_SYNC_MAX_CAMPAIGNS`, default 50), and fetches them one at a time through the same `executeMetricsFetch` as `/v1/metrics-fetch`;
+- uses `initiatedBy: system`, so with `REDDIT_TOKEN_SOURCE=broker` the Hub broker issues a short-lived `purpose: metrics` token for that campaign's own workspace and connected account;
+- reads `day` reports from UTC midnight `ADS_METRICS_SYNC_LOOKBACK_DAYS` ago (default 2, max 30) up to the start of the current UTC hour. The idempotency key is `metrics-sync:<campaign>:<start>:<end>`, so a repeat within the same hour replays and the next hour refetches (Reddit restatements);
+- audits every fetch (`command.received`, `metrics.fetch_started`, `metrics.ingested`, `metrics.fetch_completed` / `metrics.fetch_failed`), anything that throws as `metrics.fetch_failed` (`metrics_sync_error`, no error text), and one `system.job_run` per workspace per run (`details.job = ads.metrics_sync`, counts and per-campaign trace ids), or `system.job_failed` if the list query fails.
+
+| Variable | Default | Range |
+|---|---|---|
+| `ADS_METRICS_SYNC_ENABLED` | `false` | |
+| `ADS_METRICS_SYNC_INTERVAL_SECONDS` | `3600` | 300–86400 |
+| `ADS_METRICS_SYNC_INITIAL_DELAY_SECONDS` | `60` | 0–3600 |
+| `ADS_METRICS_SYNC_LOOKBACK_DAYS` | `2` | 1–30 |
+| `ADS_METRICS_SYNC_MAX_CAMPAIGNS` | `50` | 1–500 |
+
+It never mutates campaigns, budgets or ads, and runs never overlap; shutdown waits for an in-progress run.
+
 ### Remaining gaps
 
 - Protocol `MetricValues.conversions` is required; Reddit conversion metrics are nullable. Rows without `KEY_CONVERSION_TOTAL_COUNT` cannot become observations.

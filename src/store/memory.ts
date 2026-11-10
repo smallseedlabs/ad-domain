@@ -1,4 +1,6 @@
 import type { AuditEvent } from '../protocol.js';
+import type { AdPlatform } from '../types/http.js';
+import { METRICS_SYNC_STATUSES } from './port.js';
 import type {
   AdsStore,
   AdsTx,
@@ -100,6 +102,20 @@ export class MemoryStore implements AdsStore {
         this.outbox.push(event);
       },
     };
+  }
+
+  async listMetricsSyncTargets(platform: AdPlatform, limit: number): Promise<CampaignRecord[]> {
+    return [...this.campaigns.values()]
+      .filter(
+        (c) =>
+          c.platform === platform &&
+          METRICS_SYNC_STATUSES.includes(c.status) &&
+          Boolean(c.providerCampaignId) &&
+          Boolean(c.providerAccountId)
+      )
+      .sort((a, b) => (a.workspaceId + a.probaCampaignId).localeCompare(b.workspaceId + b.probaCampaignId))
+      .slice(0, limit)
+      .map((c) => ({ ...c }));
   }
 
   async ping(): Promise<void> {

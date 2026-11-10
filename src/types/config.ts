@@ -42,6 +42,17 @@ export interface AdsServiceConfig {
     /** closed (default): well-formed researchAcceptance is not treated as Hub-accepted. shape is refused in production. */
     researchAcceptanceMode: 'closed' | 'shape' | 'gateway_attested';
   };
+  /**
+   * Scheduled, read-only Reddit report sync for mapped campaigns (system-initiated broker tokens).
+   * Off unless ADS_METRICS_SYNC_ENABLED=true; requires the Reddit adapter.
+   */
+  metricsSync: {
+    enabled: boolean;
+    intervalMs: number;
+    initialDelayMs: number;
+    lookbackDays: number;
+    maxCampaignsPerRun: number;
+  };
   reddit:
     | { enabled: false }
     | ({
