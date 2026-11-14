@@ -621,4 +621,65 @@ describe('RedditAdsAdapter [injected-http]', () => {
     });
     expect(body.data?.targeting?.platforms).toBeUndefined();
   });
+
+  it('omits click_url on createAd when creating a TEXT (free-form) structured post', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
+      { status: 200, body: { data: { id: 'job_text_1', status: 'SUCCESS', post_id: FIXTURE_PROVIDER_POST_ID } } },
+      {
+        status: 200,
+        body: {
+          data: {
+            id: FIXTURE_PROVIDER_POST_ID,
+            creative: { type: 'TEXT', headline: 'Hello', body: `Visit ${FIXTURE_LANDING_PAGE_URL}`, text_format: 'PLAIN_TEXT' },
+          },
+        },
+      },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'GBP' }] } },
+      { status: 201, body: { data: { id: 'cmp_text_1', ad_account_id: ACCOUNT } } },
+      { status: 201, body: { data: { id: 'grp_text_1' } } },
+      { status: 201, body: { data: { id: 'ad_text_1' } } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'Text Ad Campaign',
+          platform: 'reddit',
+          dailyBudget: 5,
+          currency: 'GBP',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          creative: {
+            type: 'TEXT',
+            headline: 'We are building small AI tools',
+            body: 'Drop a comment or join our Discord.',
+            textFormat: 'PLAIN_TEXT',
+          },
+          researchAcceptance: FIXTURE_RESEARCH_ACCEPTANCE,
+        },
+      })
+    );
+    expect(result).toEqual({
+      kind: 'success',
+      mapping: {
+        provider: 'reddit',
+        providerCampaignId: 'cmp_text_1',
+        providerAdGroupId: 'grp_text_1',
+        providerAdId: 'ad_text_1',
+        providerAccountId: ACCOUNT,
+        launchKind: 'deliverable_ad',
+        deliverableAd: true,
+        clickUrlPushed: true,
+      },
+    });
+    const postJobCall = http.calls.find((call) => call.url.endsWith('/structured_posts/jobs'));
+    const postJobBody = JSON.parse(postJobCall!.body ?? '{}') as { data?: { creative?: { body?: string } } };
+    expect(postJobBody.data?.creative?.body).toContain(FIXTURE_LANDING_PAGE_URL);
+
+    const createAdCall = http.calls.find((call) => call.url.endsWith('/ads'));
+    const createAdBody = JSON.parse(createAdCall!.body ?? '{}') as { data?: Record<string, unknown> };
+    expect(createAdBody.data?.click_url).toBeUndefined();
+    expect(createAdBody.data?.post_id).toBe(FIXTURE_PROVIDER_POST_ID);
+  });
 });

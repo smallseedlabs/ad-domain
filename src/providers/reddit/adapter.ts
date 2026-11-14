@@ -467,11 +467,14 @@ export class RedditAdsAdapter implements ProviderAdapter {
       };
     }
 
+    const postCreativeType =
+      (post.data?.creative as { type?: unknown } | undefined)?.type ?? command.args.creative?.type;
+    const isTextPost = postCreativeType === 'TEXT';
     const ad = await this.client.createAd(this.reddit.adAccountId, {
       ad_group_id: adGroupId,
       name: command.args.name,
       post_id: createdPostId,
-      click_url: landingPageUrl,
+      ...(isTextPost ? {} : { click_url: landingPageUrl }),
       configured_status: 'ACTIVE',
     });
     if (ad.kind !== 'ok') {

@@ -25,11 +25,14 @@ export function toRedditStructuredPostData(
       },
     };
   }
+  const body = creative.body.includes(landingPageUrl)
+    ? creative.body
+    : `${creative.body.trimEnd()}\n\n${landingPageUrl}`;
   return {
     creative: {
       type: 'TEXT',
       headline: creative.headline,
-      body: creative.body,
+      body,
       text_format: creative.textFormat ?? 'PLAIN_TEXT',
     },
   };
