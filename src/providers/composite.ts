@@ -43,6 +43,10 @@ export class CompositeProviderAdapter implements ProviderAdapter {
       (query.providerAccountId.startsWith('act_') ? 'meta' : 'reddit');
     return this.pick(inferredPlatform).fetchCampaignMetrics(query);
   }
+
+  syncAccountMapping(workspaceId: string, platform?: AdPlatform) {
+    return this.pick(platform).syncAccountMapping?.(workspaceId, platform) ?? Promise.resolve(undefined);
+  }
 }
 
 export type { HttpTransport };

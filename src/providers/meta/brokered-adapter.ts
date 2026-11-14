@@ -91,4 +91,12 @@ export class CredentialedMetaAdapter implements ProviderAdapter {
     if (!r.ok) return { kind: 'unconfigured', message: `Meta connection is not ready (${r.code}): ${r.message}` };
     return this.delegate(r.credentials).fetchCampaignMetrics(query);
   }
+
+  async syncAccountMapping(workspaceId: string) {
+    if (this.source.kind !== 'broker') return undefined;
+    const r = await this.resolve({ workspaceId, purpose: 'preflight', initiatedBy: 'system' });
+    if (r.ok) return { accountId: r.credentials.accountId, connectionId: r.credentials.connectionId! };
+    if (r.code === 'broker_unavailable') return undefined;
+    return null;
+  }
 }

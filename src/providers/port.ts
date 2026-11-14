@@ -78,5 +78,8 @@ export interface ProviderAdapter {
    * null = not connected / no account chosen (mappings are marked disconnected);
    * undefined = unknown right now (mappings are left unchanged).
    */
-  syncAccountMapping?(workspaceId: string): Promise<{ accountId: string; connectionId: string } | null | undefined>;
+  syncAccountMapping?(
+    workspaceId: string,
+    platform?: AdPlatform
+  ): Promise<{ accountId: string; connectionId: string } | null | undefined>;
 }

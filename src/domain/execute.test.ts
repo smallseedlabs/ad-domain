@@ -8,6 +8,7 @@ import {
 } from '../errors.js';
 import { SystemClock } from '../ports/clock.js';
 import { FakeProvider, eligibleBillingClaim } from '../providers/fake.js';
+import { CompositeProviderAdapter } from '../providers/composite.js';
 import { UnconfiguredProvider } from '../providers/unconfigured.js';
 import { MemoryStore } from '../store/memory.js';
 import {
@@ -21,7 +22,7 @@ import {
   FIXTURE_WORKSPACE,
 } from '../testing/config.js';
 import type { CampaignActionRequest } from '../types/http.js';
-import { executeCampaignAction } from './execute.js';
+import { executeCampaignAction, syncProviderAccount } from './execute.js';
 
 function caller(workspaceId?: string) {
   return {
@@ -299,5 +300,25 @@ describe('executeCampaignAction [fake-store]', () => {
     ]);
     expect(a).toEqual(b);
     expect(a.ok).toBe(true);
+  });
+
+  it('syncs meta account mappings through CompositeProviderAdapter', async () => {
+    const reddit = new FakeProvider();
+    const meta = new FakeProvider();
+    meta.syncAccountMapping = async () => ({ accountId: 'act_1477441417672424', connectionId: 'conn_meta_1' });
+    const composite = new CompositeProviderAdapter({ reddit, meta });
+    const store = new MemoryStore();
+
+    await syncProviderAccount({ store, provider: composite }, FIXTURE_WORKSPACE, 'meta');
+
+    const mapped = await store.withTransaction((tx) => tx.listAccounts(FIXTURE_WORKSPACE, 'meta'));
+    expect(mapped).toEqual([
+      {
+        workspaceId: FIXTURE_WORKSPACE,
+        platform: 'meta',
+        accountId: 'act_1477441417672424',
+        status: 'ready',
+      },
+    ]);
   });
 });

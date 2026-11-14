@@ -130,28 +130,33 @@ export async function executeCampaignAction(
 }
 
 /**
- * Broker mode: make the workspace's Reddit account mapping follow the connection chosen in
+ * Broker mode: make the workspace's platform account mapping follow the connection chosen in
  * the Marketing section. The connected account becomes the one ready mapping; any other
- * Reddit mapping is marked unauthorized. If the broker cannot be reached, nothing changes.
+ * mapping for that platform is marked unauthorized. If the broker cannot be reached, nothing changes.
  */
-export async function syncProviderAccount(deps: Pick<ExecuteDeps, 'store' | 'provider'>, workspaceId: string): Promise<void> {
-  if (!deps.provider.syncAccountMapping || deps.provider.name !== 'reddit') return;
+export async function syncProviderAccount(
+  deps: Pick<ExecuteDeps, 'store' | 'provider'>,
+  workspaceId: string,
+  platform: CampaignRecord['platform'] = 'reddit'
+): Promise<void> {
+  if (!deps.provider.syncAccountMapping) return;
+  if (deps.provider.name !== platform && deps.provider.name !== 'composite') return;
   let current: { accountId: string; connectionId: string } | null | undefined;
   try {
-    current = await deps.provider.syncAccountMapping(workspaceId);
+    current = await deps.provider.syncAccountMapping(workspaceId, platform);
   } catch {
     return;
   }
   if (current === undefined) return;
   await deps.store.withTransaction(async (tx) => {
-    const rows = await tx.listAccounts(workspaceId, 'reddit');
+    const rows = await tx.listAccounts(workspaceId, platform);
     for (const row of rows) {
       if (row.accountId !== current?.accountId && row.status === 'ready') {
         await tx.upsertAccount({ ...row, status: 'unauthorized' });
       }
     }
     if (current && !rows.some((r) => r.accountId === current.accountId && r.status === 'ready')) {
-      await tx.upsertAccount({ workspaceId, platform: 'reddit', accountId: current.accountId, status: 'ready' });
+      await tx.upsertAccount({ workspaceId, platform, accountId: current.accountId, status: 'ready' });
     }
   });
 }
@@ -174,7 +179,7 @@ async function executeOnce(
   const spendClass = spendClassFor(args.verb, request.args);
   const fingerprint = requestFingerprint(args.verb, { ...request.args, goalId: request.goalId });
 
-  await syncProviderAccount(deps, request.workspaceId);
+  await syncProviderAccount(deps, request.workspaceId, args.platform ?? 'reddit');
 
   const prepared = await deps.store.withTransaction(async (tx) => {
     const claim = await tx.claimCommand({

@@ -177,8 +177,8 @@ async function executeOnce(
       await finishRejected(tx, deps, request, idempotencyKey, result);
       return { kind: 'done' as const, result };
     }
-    if (campaign.platform !== 'reddit') {
-      const result = fail('ownership_mismatch', 'metrics fetch in this slice is Reddit-only; other platforms stay unconfigured');
+    if (campaign.platform !== 'reddit' && campaign.platform !== 'meta') {
+      const result = fail('ownership_mismatch', 'metrics fetch in this slice is Reddit/Meta-only; other platforms stay unconfigured');
       await finishRejected(tx, deps, request, idempotencyKey, result);
       return { kind: 'done' as const, result };
     }
@@ -209,7 +209,7 @@ async function executeOnce(
         clock: deps.clock,
         details: {
           verb: METRICS_FETCH_VERB,
-          platform: 'reddit',
+          platform: campaign.platform,
           periodStart: request.periodStart,
           periodEnd: request.periodEnd,
           granularity: window.granularity,
@@ -352,7 +352,7 @@ async function executeOnce(
         clock: deps.clock,
         details: {
           verb: METRICS_FETCH_VERB,
-          platform: 'reddit',
+          platform: campaign.platform,
           ingested,
           quarantined,
           pages: outcome.pages,
