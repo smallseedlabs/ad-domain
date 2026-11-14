@@ -112,8 +112,8 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
         'creative (approved copy/media) is required to create a Reddit structured post; providerPostId is only for an already-existing t3_. Neither was supplied.'
       );
     }
-    if (parsed.data.platform !== 'reddit' && (hasCreative || parsed.data.targeting !== undefined || parsed.data.schedule !== undefined)) {
-      throw new RequestValidationError('creative, targeting, and schedule are Reddit-only in this slice; other providers remain unconfigured');
+    if (parsed.data.platform !== 'reddit' && parsed.data.platform !== 'meta' && (hasCreative || parsed.data.targeting !== undefined || parsed.data.schedule !== undefined)) {
+      throw new RequestValidationError('creative, targeting, and schedule are supported for reddit and meta only in this slice');
     }
     return {
       verb: name,

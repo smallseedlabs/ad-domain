@@ -12,6 +12,8 @@ import type { AuditPublisher } from './ports/audit-publisher.js';
 import type { ServiceAuth } from './ports/auth.js';
 import type { ProviderAdapter } from './providers/port.js';
 import { FetchHttpTransport } from './providers/http.js';
+import { CompositeProviderAdapter } from './providers/composite.js';
+import { CredentialedMetaAdapter } from './providers/meta/brokered-adapter.js';
 import { CredentialedRedditAdapter } from './providers/reddit/brokered-adapter.js';
 import { BrokerCredentialSource, StaticCredentialSource, loadAdsServiceKey } from './providers/reddit/credentials.js';
 import { UnconfiguredProvider } from './providers/unconfigured.js';
@@ -50,7 +52,10 @@ function createRedditProvider(reddit: Extract<AdsServiceConfig['reddit'], { enab
   const common = { apiBaseUrl, timeoutMs, userAgent, conversionPixelId, reportMaxPages };
   if (reddit.tokenSource === 'broker') {
     const key = loadAdsServiceKey(reddit.broker.privateKeyFile, production);
-    return new CredentialedRedditAdapter(common, new BrokerCredentialSource(reddit.broker, key, transport), transport);
+    return new CompositeProviderAdapter({
+      reddit: new CredentialedRedditAdapter(common, new BrokerCredentialSource(reddit.broker, key, transport, { provider: 'reddit' }), transport),
+      meta: new CredentialedMetaAdapter(new BrokerCredentialSource(reddit.broker, key, transport, { provider: 'meta' }), transport),
+    });
   }
   // File mode keeps the original single-account adapter path, now with attribution.
   return new CredentialedRedditAdapter(

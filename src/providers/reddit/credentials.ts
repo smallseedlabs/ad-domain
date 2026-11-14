@@ -78,14 +78,16 @@ export class BrokerCredentialSource implements RedditCredentialSource {
   readonly kind = 'broker' as const;
   private readonly cache = new Map<string, { credentials: RedditCredentials; until: number }>();
   private readonly now: () => number;
+  private readonly provider: string;
 
   constructor(
     private readonly config: ConnectionBrokerConfig,
     private readonly key: KeyObject,
     private readonly transport: HttpTransport,
-    options: { now?: () => number } = {}
+    options: { now?: () => number; provider?: string } = {}
   ) {
     this.now = options.now ?? (() => Date.now());
+    this.provider = options.provider ?? 'reddit';
   }
 
   invalidate(workspaceId: string): void {
@@ -109,7 +111,7 @@ export class BrokerCredentialSource implements RedditCredentialSource {
     try {
       response = await this.transport.request({
         method: 'POST',
-        url: `${this.config.url}/v1/internal/connections/reddit/access-token`,
+        url: `${this.config.url}/v1/internal/connections/${encodeURIComponent(this.provider)}/access-token`,
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({
           workspaceId: request.workspaceId,
