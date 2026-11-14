@@ -179,13 +179,17 @@ export class MetaAdsAdapter implements ProviderAdapter {
     }
 
     const dailyBudgetDollars = typeof args.dailyBudget === 'number' && args.dailyBudget > 0 ? args.dailyBudget : 10;
+    const bidStrategy = args.bidStrategy ?? 'LOWEST_COST_WITHOUT_CAP';
     const adSetRes = await this.post(`${this.accountId}/adsets`, {
       name: `${args.name} Ad Set`,
       campaign_id: campaignId,
       daily_budget: Math.round(dailyBudgetDollars * 100),
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      bid_strategy: bidStrategy,
+      ...(typeof args.bidAmount === 'number' && args.bidAmount > 0
+        ? { bid_amount: Math.round(args.bidAmount * 100) }
+        : {}),
       targeting: { geo_locations: { countries: ['US', 'GB'] } },
       status: 'ACTIVE',
     });

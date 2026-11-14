@@ -42,6 +42,8 @@ const createArgsSchema = z
     dailyBudget: z.number().finite().positive(),
     currency: z.string().length(3),
     platform: z.enum(AD_PLATFORMS),
+    bidStrategy: z.enum(['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP']).optional(),
+    bidAmount: z.number().finite().positive().optional(),
     expectedVersion: z.number().int().positive().optional(),
     providerAccountId: z.string().min(1).max(128).optional(),
     providerProfileId: z.string().regex(REDDIT_PROFILE_ID, 'providerProfileId must be a Reddit profile id').optional(),
@@ -80,6 +82,8 @@ export interface ParsedAdsArgs {
   dailyBudget?: number;
   currency?: string;
   platform?: (typeof AD_PLATFORMS)[number];
+  bidStrategy?: 'LOWEST_COST_WITHOUT_CAP' | 'LOWEST_COST_WITH_BID_CAP' | 'COST_CAP';
+  bidAmount?: number;
   probaCampaignId?: string;
   expectedVersion?: number;
   providerAccountId?: string;
@@ -122,6 +126,8 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
       dailyBudget: parsed.data.dailyBudget,
       currency: parsed.data.currency.toUpperCase(),
       platform: parsed.data.platform,
+      bidStrategy: parsed.data.bidStrategy,
+      bidAmount: parsed.data.bidAmount,
       expectedVersion: parsed.data.expectedVersion,
       providerAccountId: parsed.data.providerAccountId,
       providerProfileId: parsed.data.providerProfileId,
