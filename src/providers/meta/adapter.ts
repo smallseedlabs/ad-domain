@@ -345,7 +345,20 @@ export class MetaAdsAdapter implements ProviderAdapter {
   }
 
   private errMsg(body: unknown, status: number): string {
-    const err = (body as { error?: { message?: string } } | null)?.error;
-    return err?.message || `Meta Graph API answered ${status}`;
+    const err = (
+      body as {
+        error?: {
+          message?: string;
+          error_user_title?: string;
+          error_user_msg?: string;
+          error_subcode?: number;
+        };
+      } | null
+    )?.error;
+    if (!err) return `Meta Graph API answered ${status}`;
+    const parts = [err.message, err.error_user_title, err.error_user_msg]
+      .filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+    const base = parts.join(' — ') || `Meta Graph API answered ${status}`;
+    return err.error_subcode ? `${base} (subcode ${err.error_subcode})` : base;
   }
 }
