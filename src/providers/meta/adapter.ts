@@ -170,6 +170,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
       objective: 'OUTCOME_TRAFFIC',
       status: 'ACTIVE',
       special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false,
     });
     if (campRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta campaign create timed out' };
     const campaignId = (campRes.body as { id?: string } | null)?.id;
