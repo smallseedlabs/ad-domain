@@ -545,4 +545,80 @@ describe('RedditAdsAdapter [injected-http]', () => {
     if (result.kind === 'refused') expect(result.code).toBe('provider_rate_limited');
     expect(http.calls).toHaveLength(3);
   });
+
+  it('refuses dailyBudget < 5 on create before sending any remote request', async () => {
+    const http = new ScriptedHttpTransport([]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'Low Budget Campaign',
+          platform: 'reddit',
+          dailyBudget: 3,
+          currency: 'GBP',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          providerPostId: FIXTURE_PROVIDER_POST_ID,
+          researchAcceptance: FIXTURE_RESEARCH_ACCEPTANCE,
+        },
+      })
+    );
+    expect(result.kind).toBe('refused');
+    if (result.kind === 'refused') {
+      expect(result.code).toBe('billing_not_ready');
+      expect(result.message).toContain('minimum dailyBudget of 5');
+    }
+    expect(http.calls).toHaveLength(0);
+  });
+
+  it('defaults start_time, maps human-readable interests to _v3 IDs, and omits admin-only platforms on createAdGroup', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'GBP' }] } },
+      { status: 201, body: { data: { id: 'cmp_1', ad_account_id: ACCOUNT } } },
+      { status: 201, body: { data: { id: 'grp_1' } } },
+      { status: 201, body: { data: { id: 'ad_1' } } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'Small Seed Lab — Discord signups',
+          platform: 'reddit',
+          dailyBudget: 5,
+          currency: 'GBP',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          providerPostId: FIXTURE_PROVIDER_POST_ID,
+          researchAcceptance: FIXTURE_RESEARCH_ACCEPTANCE,
+          targeting: {
+            communities: ['artificial', 'MachineLearning'],
+            geolocations: ['GB', 'US'],
+            interests: ['technology', 'business'],
+            keywords: ['enterprise ai', 'document automation'],
+            languages: ['EN'],
+            platforms: ['DESKTOP'],
+          },
+        },
+      })
+    );
+    expect(result.kind).toBe('success');
+    const adGroupCall = http.calls.find((call) => call.url.endsWith('/ad_groups'));
+    expect(adGroupCall).toBeDefined();
+    const body = JSON.parse(adGroupCall!.body ?? '{}') as {
+      data?: {
+        start_time?: string;
+        targeting?: Record<string, unknown>;
+      };
+    };
+    expect(body.data?.start_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(body.data?.targeting).toEqual({
+      communities: ['artificial', 'MachineLearning'],
+      geolocations: ['GB', 'US'],
+      interests: ['software_v3', 'business_v3'],
+      keywords: ['enterprise ai', 'document automation'],
+      languages: ['EN'],
+    });
+    expect(body.data?.targeting?.platforms).toBeUndefined();
+  });
 });

@@ -33,8 +33,24 @@ function parseJson(text: string): unknown {
 
 function redditMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== 'object') return fallback;
-  const err = (body as { error?: { message?: unknown } }).error;
-  if (err && typeof err.message === 'string' && err.message.trim()) return err.message;
+  const err = (body as { error?: { message?: unknown; fields?: unknown } }).error;
+  const fieldDetails = Array.isArray(err?.fields)
+    ? err.fields
+        .map((f) => {
+          if (!f || typeof f !== 'object') return undefined;
+          const field = (f as { field?: unknown }).field;
+          const msg = (f as { message?: unknown }).message;
+          if (typeof field === 'string' && typeof msg === 'string') return `${field}: ${msg}`;
+          if (typeof msg === 'string') return msg;
+          return undefined;
+        })
+        .filter((s): s is string => Boolean(s))
+        .join('; ')
+    : '';
+  if (err && typeof err.message === 'string' && err.message.trim()) {
+    return fieldDetails ? `${err.message} (${fieldDetails})` : err.message;
+  }
+  if (fieldDetails) return fieldDetails;
   const message = (body as { message?: unknown }).message;
   if (typeof message === 'string' && message.trim()) return message;
   return fallback;

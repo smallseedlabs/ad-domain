@@ -336,6 +336,13 @@ export class RedditAdsAdapter implements ProviderAdapter {
         message: 'creative/targeting/schedule mutations are Reddit-only; this adapter will not apply them to another provider',
       };
     }
+    if (typeof command.args.dailyBudget === 'number' && command.args.dailyBudget < 5) {
+      return {
+        kind: 'refused',
+        code: 'billing_not_ready',
+        message: 'Reddit requires a minimum dailyBudget of 5 (5,000,000 microcurrency) for DAILY_SPEND ad groups. No remote create was sent.',
+      };
+    }
 
     const resolvedPost = await this.resolvePostId(command, landingPageUrl);
     if (!('postId' in resolvedPost)) return resolvedPost;
@@ -419,6 +426,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
     if (typeof command.args.dailyBudget === 'number') {
       const targeting = toRedditTargeting(command.args.targeting);
       const scheduleFields = toRedditScheduleFields(command.args.schedule);
+      const startTime = scheduleFields.start_time ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
       const group = await this.client.createAdGroup(this.reddit.adAccountId, {
         type: 'MANUAL',
         name: `${command.args.name ?? 'ad-group'}`.slice(0, 200),
@@ -432,6 +440,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
         conversion_pixel_id: pixelId,
         ...(targeting ? { targeting } : {}),
         ...scheduleFields,
+        start_time: startTime,
       });
       if (group.kind === 'ok') {
         adGroupId = idOf(group.data);
@@ -709,6 +718,13 @@ export class RedditAdsAdapter implements ProviderAdapter {
       }
     }
     if (typeof command.args.dailyBudget === 'number') {
+      if (command.args.dailyBudget < 5) {
+        return {
+          kind: 'refused',
+          code: 'billing_not_ready',
+          message: 'Reddit requires a minimum dailyBudget of 5 (5,000,000 microcurrency) for DAILY_SPEND ad groups.',
+        };
+      }
       if (!command.providerAdGroupId) {
         return {
           kind: 'refused',
