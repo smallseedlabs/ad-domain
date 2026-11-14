@@ -194,6 +194,10 @@ export class RedditAdsClient {
     return this.send<Record<string, unknown>>('GET', `/structured_posts/${encodeURIComponent(postId)}`);
   }
 
+  updatePost(postId: string, data: Record<string, unknown>) {
+    return this.send<Record<string, unknown>>('PATCH', `/posts/${encodeURIComponent(postId)}`, { data });
+  }
+
   createAd(adAccountId: string, data: Record<string, unknown>) {
     return this.send<Record<string, unknown>>('POST', `/ad_accounts/${encodeURIComponent(adAccountId)}/ads`, { data });
   }

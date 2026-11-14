@@ -509,6 +509,8 @@ async function executeOnce(
           verb: parsed.verb,
           version: updated.version,
           platform: updated.platform,
+          ...(updated.providerAccountId ? { accountId: updated.providerAccountId, providerAccountId: updated.providerAccountId } : {}),
+          ...(updated.providerCampaignId ? { providerCampaignId: updated.providerCampaignId } : {}),
           ...attributionDetails(request.initiatedBy, outcome.attribution),
           landingPageUrlLength: updated.landingPageUrl.length,
           ...(deliverable

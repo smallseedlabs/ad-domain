@@ -213,6 +213,8 @@ async function executeOnce(
           periodStart: request.periodStart,
           periodEnd: request.periodEnd,
           granularity: window.granularity,
+          accountId: campaign.providerAccountId,
+          providerAccountId: campaign.providerAccountId,
           providerCampaignId: campaign.providerCampaignId,
         },
       })

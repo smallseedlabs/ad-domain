@@ -112,6 +112,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           },
         },
       },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID, allow_comments: true } } },
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_1', ad_account_id: ACCOUNT } } },
@@ -150,16 +151,16 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(jobBody.data.creative.type).toBe('IMAGE');
     expect(jobBody.data.creative.destination.url).toBe(FIXTURE_LANDING_PAGE_URL);
     expect(jobBody.data.creative.image.media).toEqual({ type: 'URL', url: FIXTURE_MEDIA_URL });
-    const groupBody = JSON.parse(http.calls[6]!.body ?? '{}') as {
+    const groupBody = JSON.parse(http.calls[7]!.body ?? '{}') as {
       data: { targeting?: { communities?: string[] }; start_time?: string; schedule?: unknown[] };
     };
     expect(groupBody.data.targeting?.communities).toEqual(['aww']);
     expect(groupBody.data.start_time).toBe('2026-11-09T00:00:00.000Z');
     expect(groupBody.data.schedule).toEqual([{ start_day: 1, end_day: 5, start_hour: 10, end_hour: 18 }]);
-    const adBody = JSON.parse(http.calls[7]!.body ?? '{}') as { data: { click_url: string; post_id: string } };
+    const adBody = JSON.parse(http.calls[8]!.body ?? '{}') as { data: { click_url: string; post_id: string } };
     expect(adBody.data.click_url).toBe(FIXTURE_LANDING_PAGE_URL);
     expect(adBody.data.post_id).toBe(FIXTURE_PROVIDER_POST_ID);
-    expect(http.calls.some((call) => call.url.includes('/posts') && !call.url.includes('structured_posts'))).toBe(false);
+    expect(http.calls.some((call) => call.method === 'POST' && call.url.includes('/posts') && !call.url.includes('structured_posts'))).toBe(false);
   });
 
   it('creates campaign, ad group, and ad with the exact user landing URL as click_url', async () => {
@@ -306,6 +307,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           },
         },
       },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID, allow_comments: true } } },
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_1', ad_account_id: ACCOUNT } } },
@@ -331,7 +333,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(result.kind).toBe('success');
     expect(http.calls[2]!.method).toBe('GET');
     expect(http.calls[2]!.url).toContain('/structured_posts/jobs/job_1');
-    const adBody = JSON.parse(http.calls[7]!.body ?? '{}') as { data: { post_id: string } };
+    const adBody = JSON.parse(http.calls[8]!.body ?? '{}') as { data: { post_id: string } };
     expect(adBody.data.post_id).toBe(FIXTURE_PROVIDER_POST_ID);
   });
 
@@ -626,6 +628,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: [{ id: FIXTURE_PROVIDER_PROFILE_ID }], pagination: {} } },
       { status: 200, body: { data: { id: 'job_text_1', status: 'SUCCESS', post_id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID, allow_comments: true } } },
       {
         status: 200,
         body: {
@@ -681,5 +684,8 @@ describe('RedditAdsAdapter [injected-http]', () => {
     const createAdBody = JSON.parse(createAdCall!.body ?? '{}') as { data?: Record<string, unknown> };
     expect(createAdBody.data?.click_url).toBeUndefined();
     expect(createAdBody.data?.post_id).toBe(FIXTURE_PROVIDER_POST_ID);
+
+    const patchPostCall = http.calls.find((call) => call.method === 'PATCH' && call.url.includes('/posts/'));
+    expect(JSON.parse(patchPostCall!.body ?? '{}')).toEqual({ data: { allow_comments: true } });
   });
 });

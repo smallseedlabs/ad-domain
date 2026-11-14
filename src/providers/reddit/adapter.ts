@@ -557,7 +557,11 @@ export class RedditAdsAdapter implements ProviderAdapter {
       const status = jobStatus(latest);
       const postId = jobPostId(latest);
       // Official POST job schema may omit post_id; GET /structured_posts/jobs/{id} is the documented source.
-      if (status === 'SUCCESS' && postId) return { postId };
+      if (status === 'SUCCESS' && postId) {
+        // Reddit defaults promoted posts to allow_comments=false; unlock comments best-effort so survey/feedback posts can receive replies.
+        await this.client.updatePost(postId, { allow_comments: true }).catch(() => undefined);
+        return { postId };
+      }
       if (status === 'SUCCESS' && !postId && i > 0) {
         return {
           kind: 'ambiguous',
