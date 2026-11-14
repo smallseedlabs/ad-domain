@@ -44,6 +44,10 @@ const createArgsSchema = z
     platform: z.enum(AD_PLATFORMS),
     bidStrategy: z.enum(['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP']).optional(),
     bidAmount: z.number().finite().positive().optional(),
+    objective: z.enum(['OUTCOME_TRAFFIC', 'OUTCOME_AWARENESS', 'OUTCOME_ENGAGEMENT', 'OUTCOME_LEADS', 'OUTCOME_SALES']).optional(),
+    optimizationGoal: z.enum(['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'IMPRESSIONS', 'REACH', 'OFFSITE_CONVERSIONS']).optional(),
+    billingEvent: z.enum(['IMPRESSIONS', 'LINK_CLICKS']).optional(),
+    ctaType: z.enum(['LEARN_MORE', 'SIGN_UP', 'SHOP_NOW', 'GET_QUOTE', 'DOWNLOAD']).optional(),
     expectedVersion: z.number().int().positive().optional(),
     providerAccountId: z.string().min(1).max(128).optional(),
     providerProfileId: z.string().regex(REDDIT_PROFILE_ID, 'providerProfileId must be a Reddit profile id').optional(),
@@ -84,6 +88,10 @@ export interface ParsedAdsArgs {
   platform?: (typeof AD_PLATFORMS)[number];
   bidStrategy?: 'LOWEST_COST_WITHOUT_CAP' | 'LOWEST_COST_WITH_BID_CAP' | 'COST_CAP';
   bidAmount?: number;
+  objective?: 'OUTCOME_TRAFFIC' | 'OUTCOME_AWARENESS' | 'OUTCOME_ENGAGEMENT' | 'OUTCOME_LEADS' | 'OUTCOME_SALES';
+  optimizationGoal?: 'LINK_CLICKS' | 'LANDING_PAGE_VIEWS' | 'IMPRESSIONS' | 'REACH' | 'OFFSITE_CONVERSIONS';
+  billingEvent?: 'IMPRESSIONS' | 'LINK_CLICKS';
+  ctaType?: 'LEARN_MORE' | 'SIGN_UP' | 'SHOP_NOW' | 'GET_QUOTE' | 'DOWNLOAD';
   probaCampaignId?: string;
   expectedVersion?: number;
   providerAccountId?: string;
@@ -128,6 +136,10 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
       platform: parsed.data.platform,
       bidStrategy: parsed.data.bidStrategy,
       bidAmount: parsed.data.bidAmount,
+      objective: parsed.data.objective,
+      optimizationGoal: parsed.data.optimizationGoal,
+      billingEvent: parsed.data.billingEvent,
+      ctaType: parsed.data.ctaType,
       expectedVersion: parsed.data.expectedVersion,
       providerAccountId: parsed.data.providerAccountId,
       providerProfileId: parsed.data.providerProfileId,

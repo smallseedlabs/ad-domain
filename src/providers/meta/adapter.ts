@@ -167,7 +167,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
 
     const campRes = await this.post(`${this.accountId}/campaigns`, {
       name: args.name,
-      objective: 'OUTCOME_TRAFFIC',
+      objective: args.objective ?? 'OUTCOME_TRAFFIC',
       status: 'ACTIVE',
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
@@ -180,17 +180,20 @@ export class MetaAdsAdapter implements ProviderAdapter {
 
     const dailyBudgetDollars = typeof args.dailyBudget === 'number' && args.dailyBudget > 0 ? args.dailyBudget : 10;
     const bidStrategy = args.bidStrategy ?? 'LOWEST_COST_WITHOUT_CAP';
+    const countries = (args.targeting?.geolocations ?? [])
+      .map((g) => g.trim().toUpperCase())
+      .filter((g) => /^[A-Z]{2}$/.test(g));
     const adSetRes = await this.post(`${this.accountId}/adsets`, {
       name: `${args.name} Ad Set`,
       campaign_id: campaignId,
       daily_budget: Math.round(dailyBudgetDollars * 100),
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LINK_CLICKS',
+      billing_event: args.billingEvent ?? 'IMPRESSIONS',
+      optimization_goal: args.optimizationGoal ?? 'LINK_CLICKS',
       bid_strategy: bidStrategy,
       ...(typeof args.bidAmount === 'number' && args.bidAmount > 0
         ? { bid_amount: Math.round(args.bidAmount * 100) }
         : {}),
-      targeting: { geo_locations: { countries: ['US', 'GB'] } },
+      targeting: { geo_locations: { countries: countries.length > 0 ? countries : ['US', 'GB'] } },
       status: 'ACTIVE',
     });
     if (adSetRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta ad set create timed out' };
@@ -199,6 +202,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
       return { kind: 'refused', code: 'provider_refused', message: this.errMsg(adSetRes.body, adSetRes.status) };
     }
 
+    const ctaType = args.ctaType ?? 'LEARN_MORE';
     const storySpec = videoId
       ? {
           page_id: pageId,
@@ -206,7 +210,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
             video_id: videoId,
             title: creative?.headline ?? args.name,
             message: creative?.body ?? creative?.headline ?? args.name,
-            call_to_action: { type: 'LEARN_MORE', value: { link: landingPageUrl } },
+            call_to_action: { type: ctaType, value: { link: landingPageUrl } },
           },
         }
       : {
@@ -216,7 +220,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
             name: creative?.headline ?? args.name,
             message: creative?.body ?? creative?.headline ?? args.name,
             ...(imageHash ? { image_hash: imageHash } : {}),
-            call_to_action: { type: 'LEARN_MORE', value: { link: landingPageUrl } },
+            call_to_action: { type: ctaType, value: { link: landingPageUrl } },
           },
         };
 
