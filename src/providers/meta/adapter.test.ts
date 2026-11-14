@@ -56,6 +56,7 @@ describe('MetaAdsAdapter', () => {
     });
     expect(http.calls[2]!.url).toContain('/act_123/adimages');
     expect(JSON.parse(http.calls[3]!.body ?? '{}').is_adset_budget_sharing_enabled).toBe(false);
+    expect(JSON.parse(http.calls[4]!.body ?? '{}').bid_strategy).toBe('LOWEST_COST_WITHOUT_CAP');
     expect(JSON.parse(http.calls[5]!.body ?? '{}').object_story_spec.link_data.image_hash).toBe('hash_img_1');
   });
 

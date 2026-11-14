@@ -185,6 +185,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
       daily_budget: Math.round(dailyBudgetDollars * 100),
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       targeting: { geo_locations: { countries: ['US', 'GB'] } },
       status: 'ACTIVE',
     });
