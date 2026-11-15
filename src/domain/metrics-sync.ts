@@ -161,7 +161,11 @@ export async function runMetricsSyncOnce(deps: MetricsSyncDeps): Promise<Metrics
 
   let campaigns: CampaignRecord[];
   try {
-    campaigns = await deps.store.listMetricsSyncTargets('reddit', deps.config.metricsSync.maxCampaignsPerRun);
+    const platforms = ['reddit', 'meta'] as const;
+    const perPlatform = await Promise.all(
+      platforms.map((p) => deps.store.listMetricsSyncTargets(p, deps.config.metricsSync.maxCampaignsPerRun))
+    );
+    campaigns = perPlatform.flat().slice(0, deps.config.metricsSync.maxCampaignsPerRun);
   } catch (err) {
     deps.logger?.error({ runId, errorName: errorName(err) }, 'metrics sync could not list campaigns');
     try {
