@@ -70,6 +70,7 @@ describe('executeCampaignAction [reddit-injected-http]', () => {
         },
       },
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_exec', ad_account_id: ACCOUNT } } },
       { status: 201, body: { data: { id: 'grp_exec' } } },

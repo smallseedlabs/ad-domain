@@ -78,6 +78,7 @@ const REDDIT_CREATE: ScriptedStep[] = [
     },
   },
   { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+  { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
   { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
   { status: 201, body: { data: { id: 'cmp_b', ad_account_id: CONNECTED } } },
   { status: 201, body: { data: { id: 'grp_b' } } },

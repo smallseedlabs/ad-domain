@@ -147,17 +147,24 @@ export class MetaAdsAdapter implements ProviderAdapter {
     let imageHash: string | undefined;
     let videoId: string | undefined;
 
-    if (creative?.type === 'IMAGE' && creative.mediaUrl) {
-      const lower = creative.mediaUrl.toLowerCase();
-      if (lower.endsWith('.mp4') || lower.endsWith('.mov')) {
-        const vidRes = await this.post(`${this.accountId}/advideos`, { file_url: creative.mediaUrl, name: args.name });
+    const mediaUrl =
+      creative && 'mediaUrl' in creative && typeof (creative as { mediaUrl?: unknown }).mediaUrl === 'string'
+        ? (creative as { mediaUrl: string }).mediaUrl
+        : undefined;
+    const isVideo =
+      (creative as { type?: string } | undefined)?.type === 'VIDEO' ||
+      Boolean(mediaUrl && (mediaUrl.toLowerCase().endsWith('.mp4') || mediaUrl.toLowerCase().endsWith('.mov')));
+
+    if (mediaUrl) {
+      if (isVideo) {
+        const vidRes = await this.post(`${this.accountId}/advideos`, { file_url: mediaUrl, name: args.name });
         if (vidRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta video upload timed out' };
         if (vidRes.status >= 400 || !(vidRes.body as { id?: string } | null)?.id) {
           return { kind: 'refused', code: 'media_upload_failed', message: this.errMsg(vidRes.body, vidRes.status) };
         }
         videoId = (vidRes.body as { id: string }).id;
       } else {
-        const imgRes = await this.post(`${this.accountId}/adimages`, { url: creative.mediaUrl });
+        const imgRes = await this.post(`${this.accountId}/adimages`, { url: mediaUrl });
         if (imgRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta image upload timed out' };
         const imagesObj = (imgRes.body as { images?: Record<string, { hash?: string }> } | null)?.images;
         imageHash = imagesObj ? Object.values(imagesObj)[0]?.hash : undefined;
@@ -192,7 +199,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
       billing_event: args.billingEvent ?? 'IMPRESSIONS',
       optimization_goal: args.optimizationGoal ?? 'LINK_CLICKS',
       bid_strategy: bidStrategy,
-      ...(typeof args.bidAmount === 'number' && args.bidAmount > 0
+      ...(bidStrategy !== 'LOWEST_COST_WITHOUT_CAP' && typeof args.bidAmount === 'number' && args.bidAmount > 0
         ? { bid_amount: Math.round(args.bidAmount * 100) }
         : {}),
       ...(pageName ? { dsa_beneficiary: pageName, dsa_payor: pageName } : {}),
