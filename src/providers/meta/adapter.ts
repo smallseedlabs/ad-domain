@@ -131,10 +131,12 @@ export class MetaAdsAdapter implements ProviderAdapter {
     }
 
     let pageId = args.providerProfileId;
+    let pageName: string | undefined;
     if (!pageId) {
       const pagesRes = await this.get('me/accounts?fields=id,name&limit=1');
-      const pages = (pagesRes.body as { data?: Array<{ id?: string }> } | null)?.data ?? [];
+      const pages = (pagesRes.body as { data?: Array<{ id?: string; name?: string }> } | null)?.data ?? [];
       pageId = pages[0]?.id;
+      pageName = pages[0]?.name;
     }
     if (!pageId) {
       return { kind: 'refused', code: 'missing_page', message: 'No Facebook Page found for this Meta connection' };
@@ -193,6 +195,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
       ...(typeof args.bidAmount === 'number' && args.bidAmount > 0
         ? { bid_amount: Math.round(args.bidAmount * 100) }
         : {}),
+      ...(pageName ? { dsa_beneficiary: pageName, dsa_payor: pageName } : {}),
       targeting: { geo_locations: { countries: countries.length > 0 ? countries : ['US', 'GB'] } },
       status: 'ACTIVE',
     });
