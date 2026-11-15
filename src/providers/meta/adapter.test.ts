@@ -148,4 +148,33 @@ describe('MetaAdsAdapter', () => {
       pages: 1,
     });
   });
+
+  it('cleans up partial campaign when ad create is refused', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { id: 'act_123', account_status: 1 } },
+      { status: 200, body: { data: [{ id: 'page_1', name: 'SmallSeed' }] } },
+      { status: 200, body: { id: 'meta_cmp_orphan' } },
+      { status: 200, body: { id: 'meta_set_1' } },
+      { status: 200, body: { id: 'meta_cr_1' } },
+      { status: 400, body: { error: { message: 'Ad refused' } } },
+      { status: 200, body: { success: true } },
+    ]);
+    const adapter = new MetaAdsAdapter({ accessToken: 'tok', adAccountId: 'act_123' }, http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'Orphan Check',
+          landingPageUrl: 'https://smallseedlabs.co.uk/',
+          dailyBudget: 10,
+          currency: 'GBP',
+          platform: 'meta',
+          creative: { type: 'TEXT', headline: 'Hi', body: 'Body', textFormat: 'PLAIN_TEXT' },
+        },
+      })
+    );
+    expect(result).toMatchObject({ kind: 'refused', code: 'provider_refused' });
+    expect(http.calls[6]!.url).toContain('/meta_cmp_orphan');
+    expect(JSON.parse(http.calls[6]!.body ?? '{}')).toEqual({ status: 'DELETED' });
+  });
 });

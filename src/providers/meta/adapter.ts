@@ -202,6 +202,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
     if (adSetRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta ad set create timed out' };
     const adSetId = (adSetRes.body as { id?: string } | null)?.id;
     if (adSetRes.status >= 400 || !adSetId) {
+      await this.cleanupCampaign(campaignId);
       return { kind: 'refused', code: 'provider_refused', message: this.errMsg(adSetRes.body, adSetRes.status) };
     }
 
@@ -234,6 +235,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
     if (crRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta ad creative create timed out' };
     const creativeId = (crRes.body as { id?: string } | null)?.id;
     if (crRes.status >= 400 || !creativeId) {
+      await this.cleanupCampaign(campaignId);
       return { kind: 'refused', code: 'provider_refused', message: this.errMsg(crRes.body, crRes.status) };
     }
 
@@ -246,6 +248,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
     if (adRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta ad create timed out' };
     const adId = (adRes.body as { id?: string } | null)?.id;
     if (adRes.status >= 400 || !adId) {
+      await this.cleanupCampaign(campaignId);
       return { kind: 'refused', code: 'provider_refused', message: this.errMsg(adRes.body, adRes.status) };
     }
 
@@ -354,6 +357,17 @@ export class MetaAdsAdapter implements ProviderAdapter {
       return JSON.parse(raw);
     } catch {
       return null;
+    }
+  }
+
+  private async cleanupCampaign(campaignId: string): Promise<void> {
+    try {
+      const res = await this.post(campaignId, { status: 'DELETED' });
+      if (res.kind !== 'response' || res.status >= 400) {
+        await this.post(campaignId, { status: 'PAUSED' });
+      }
+    } catch {
+      // Best-effort rollback: never mask the primary Meta refusal.
     }
   }
 
