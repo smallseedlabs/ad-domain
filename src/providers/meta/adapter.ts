@@ -42,7 +42,14 @@ export class MetaAdsAdapter implements ProviderAdapter {
   async connectionState(_workspaceId: string, _platform?: AdPlatform) {
     const res = await this.get(`${this.accountId}?fields=id,account_status,currency`);
     if (res.kind === 'timeout') return { state: 'unavailable' as const, platform: 'meta' as const, message: 'Meta Graph API timed out' };
-    if (res.status === 401 || res.status === 403) return { state: 'unauthorized' as const, platform: 'meta' as const, message: 'Meta token unauthorized' };
+    const err = (res.body as { error?: { message?: string; code?: number; type?: string } } | null)?.error;
+    if (res.status === 401 || res.status === 403 || err?.code === 190 || err?.type === 'OAuthException') {
+      return {
+        state: 'unauthorized' as const,
+        platform: 'meta' as const,
+        message: err?.message ? `Meta token unauthorized: ${err.message}` : 'Meta token unauthorized',
+      };
+    }
     if (res.status >= 400 || !res.body) return { state: 'unavailable' as const, platform: 'meta' as const, message: `Meta answered ${res.status}` };
     return { state: 'ready' as const, platform: 'meta' as const, accountId: this.accountId };
   }
@@ -50,7 +57,13 @@ export class MetaAdsAdapter implements ProviderAdapter {
   async permissionState(_workspaceId: string, _platform?: AdPlatform) {
     const res = await this.get('me/permissions');
     if (res.kind === 'timeout' || res.status >= 500) return { state: 'unavailable' as const, message: 'Meta permissions check unavailable' };
-    if (res.status === 401 || res.status === 403) return { state: 'unauthorized' as const, message: 'Meta token unauthorized' };
+    const err = (res.body as { error?: { message?: string; code?: number; type?: string } } | null)?.error;
+    if (res.status === 401 || res.status === 403 || res.status >= 400 || err?.code === 190 || err?.type === 'OAuthException') {
+      return {
+        state: 'unauthorized' as const,
+        message: err?.message ? `Meta token unauthorized: ${err.message}` : 'Meta token unauthorized',
+      };
+    }
     const perms = Array.isArray((res.body as { data?: unknown[] } | null)?.data)
       ? ((res.body as { data: Array<{ permission?: string; status?: string }> }).data)
       : [];
