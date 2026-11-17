@@ -263,9 +263,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
         status: 201,
         body: { data: { id: 'job_1', status: 'QUEUED', created_at: '2026-11-08T00:00:00Z', modified_at: '2026-11-08T00:00:00Z' } },
       },
-      queued,
-      queued,
-      queued,
+      ...Array.from({ length: 10 }, () => queued),
     ]);
     const adapter = new RedditAdsAdapter(redditConfig(), http);
     const result = await adapter.mutate(

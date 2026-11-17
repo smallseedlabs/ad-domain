@@ -584,6 +584,9 @@ export class RedditAdsAdapter implements ProviderAdapter {
           message: `Reddit structured post job ${jobId} SERVER_ERROR; post may exist. Not retried as success.`,
         };
       }
+      if (i > 0 && process.env.NODE_ENV !== 'test') {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
       const polled = await this.client.getStructuredPostJob(jobId);
       if (polled.kind !== 'ok') {
         if (polled.kind === 'rate_limited') {
