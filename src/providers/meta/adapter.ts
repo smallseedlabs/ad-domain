@@ -138,7 +138,16 @@ export class MetaAdsAdapter implements ProviderAdapter {
     const args = command.args;
     const accountRes = await this.get(`${this.accountId}?fields=id,account_status`);
     if (accountRes.kind === 'timeout') return { kind: 'refused', code: 'provider_unavailable', message: 'Meta account check timed out' };
-    if (accountRes.status === 401 || accountRes.status === 403) return { kind: 'refused', code: 'provider_unauthorized', message: 'Meta token unauthorized' };
+    const accountErr = (accountRes.body as { error?: { code?: number; type?: string } } | null)?.error;
+    if (
+      accountRes.status === 401 ||
+      accountRes.status === 403 ||
+      accountErr?.code === 190 ||
+      accountErr?.code === 200 ||
+      accountErr?.type === 'OAuthException'
+    ) {
+      return { kind: 'refused', code: 'provider_unauthorized', message: this.errMsg(accountRes.body, accountRes.status) };
+    }
     if ((accountRes.body as { account_status?: number } | null)?.account_status !== 1) {
       return { kind: 'refused', code: 'billing_not_ready', message: 'Meta ad account is not active or lacks a funding source' };
     }
@@ -147,6 +156,10 @@ export class MetaAdsAdapter implements ProviderAdapter {
     let pageName: string | undefined;
     if (!pageId) {
       const pagesRes = await this.get('me/accounts?fields=id,name&limit=1');
+      if (pagesRes.kind === 'timeout') return { kind: 'refused', code: 'provider_unavailable', message: 'Meta pages check timed out' };
+      if (pagesRes.status >= 400) {
+        return { kind: 'refused', code: 'provider_unauthorized', message: this.errMsg(pagesRes.body, pagesRes.status) };
+      }
       const pages = (pagesRes.body as { data?: Array<{ id?: string; name?: string }> } | null)?.data ?? [];
       pageId = pages[0]?.id;
       pageName = pages[0]?.name;
