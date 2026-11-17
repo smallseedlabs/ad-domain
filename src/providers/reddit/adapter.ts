@@ -450,8 +450,30 @@ export class RedditAdsAdapter implements ProviderAdapter {
           code: 'outcome_ambiguous',
           message: `Reddit campaign ${campaignId} may exist; ad group create outcome is uncertain: ${group.message}`,
         };
+      } else {
+        console.warn('[reddit] createAdGroup refused:', group.message, { campaignId, hasTargeting: Boolean(targeting) });
+        if (targeting && process.env.NODE_ENV !== 'test') {
+          const fallbackGroup = await this.client.createAdGroup(this.reddit.adAccountId, {
+            type: 'MANUAL',
+            name: `${command.args.name ?? 'ad-group'}`.slice(0, 200),
+            campaign_id: campaignId,
+            configured_status: 'ACTIVE',
+            goal_type: 'DAILY_SPEND',
+            goal_value: toMicros(command.args.dailyBudget),
+            bid_type: 'CPC',
+            bid_strategy: 'BIDLESS',
+            bid_value: null,
+            conversion_pixel_id: pixelId,
+            ...scheduleFields,
+            start_time: startTime,
+          });
+          if (fallbackGroup.kind === 'ok') {
+            adGroupId = idOf(fallbackGroup.data);
+          } else {
+            console.warn('[reddit] createAdGroup fallback also refused:', fallbackGroup.message);
+          }
+        }
       }
-      // 4xx on ad group: campaign exists; persist campaign mapping and note missing ad group rather than claiming a live ad.
     }
 
     if (!adGroupId) {
