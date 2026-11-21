@@ -6,6 +6,7 @@ import { ServiceTokenAuth } from './auth/service-token.js';
 import { LogAuditPublisher, RedisAuditPublisher } from './audit/publisher.js';
 import { OutboxRelay } from './audit/relay.js';
 import { runMigrations } from './db/migrate.js';
+import { createWatchdogPort, type WatchdogPort } from './domain/watchdog.js';
 import { createLogger, type Logger } from './logger.js';
 import { SystemClock, type Clock } from './ports/clock.js';
 import type { AuditPublisher } from './ports/audit-publisher.js';
@@ -41,6 +42,7 @@ export interface AdsRuntime {
   logger: Logger;
   store: AdsStore;
   provider: ProviderAdapter;
+  watchdogPort: WatchdogPort;
   ready(): Promise<Record<string, 'ok' | 'fail'>>;
   relayOnce(): Promise<void>;
   close(): Promise<void>;
@@ -148,6 +150,7 @@ export async function createRuntime(config: AdsServiceConfig, overrides: Runtime
     logger,
     store,
     provider,
+    watchdogPort: createWatchdogPort({ config, store, provider, clock }),
     async ready() {
       const checks: Record<string, 'ok' | 'fail'> = { config: 'ok' };
       try {
