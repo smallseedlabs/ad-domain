@@ -75,3 +75,32 @@ describe('REDDIT_TOKEN_SOURCE=broker', () => {
     expect(() => loadConfig({ ...base, REDDIT_TOKEN_SOURCE: 'magic' })).toThrow(/file or broker/);
   });
 });
+
+describe('H0-07 production budget caps and metricsSync decoupling', () => {
+  const prodBase = {
+    NODE_ENV: 'production',
+    AUDIT_PUBLISHER: 'redis',
+    REDIS_URL: 'redis://127.0.0.1:6379',
+    DATABASE_URL: 'postgres://ads:x@127.0.0.1:5432/ad_domain',
+    GATEWAY_SERVICE_PUBLIC_KEY_FILE: '/tmp/gw.jwks',
+  };
+
+  it('fails production boot if ADS_MAX_DAILY_BUDGET or ADS_MAX_MONTHLY_SPEND is unset', () => {
+    expect(() => loadConfig(prodBase)).toThrow(/ADS_MAX_DAILY_BUDGET/);
+    expect(() => loadConfig({ ...prodBase, ADS_MAX_DAILY_BUDGET: '100' })).toThrow(/ADS_MAX_MONTHLY_SPEND/);
+
+    const ok = loadConfig({ ...prodBase, ADS_MAX_DAILY_BUDGET: '100', ADS_MAX_MONTHLY_SPEND: '1000' });
+    expect(ok.ads.maxDailyBudget).toBe(100);
+    expect(ok.ads.maxMonthlySpend).toBe(1000);
+  });
+
+  it('allows ADS_METRICS_SYNC_ENABLED=true without REDDIT_ADS_ENABLED=true (Meta-only deployments)', () => {
+    const cfg = loadConfig({
+      NODE_ENV: 'test',
+      AUDIT_PUBLISHER: 'log',
+      ADS_METRICS_SYNC_ENABLED: 'true',
+    });
+    expect(cfg.metricsSync.enabled).toBe(true);
+    expect(cfg.reddit.enabled).toBe(false);
+  });
+});
