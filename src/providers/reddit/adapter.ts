@@ -17,6 +17,7 @@ import { toMicros } from './money.js';
 import { normalizeRedditMetrics, parseRedditReportPage } from './normalize-metrics.js';
 import { jobPostId, jobStatus, toRedditStructuredPostData } from './structured-post.js';
 import { redditSameOrigin, toRedditHourUtc } from './time.js';
+import { resolveRedditObjective } from '../../domain/objectives.js';
 
 const DELIVERABLE_MAPPING = {
   launchKind: 'deliverable_ad' as const,
@@ -393,21 +394,19 @@ export class RedditAdsAdapter implements ProviderAdapter {
       };
     }
 
+    const extArgs = command.args as typeof command.args & { conversionSignalVerified?: boolean };
     const launchStatus =
       process.env.AUTO_ACTIVATE_ON_LAUNCH === 'true' && Boolean(command.args.approvalToken)
         ? 'ACTIVE'
         : 'PAUSED';
-    const objective =
-      command.args.objective === 'OUTCOME_AWARENESS'
-        ? 'IMPRESSIONS'
-        : command.args.objective === 'OUTCOME_SALES' || command.args.objective === 'OUTCOME_LEADS'
-          ? 'CONVERSIONS'
-          : 'CLICKS';
 
     const created = await this.client.createCampaign(this.reddit.adAccountId, {
       name: command.args.name,
       configured_status: launchStatus,
-      objective,
+      objective: resolveRedditObjective({
+        objective: command.args.objective,
+        conversionSignalVerified: extArgs.conversionSignalVerified,
+      }),
       funding_instrument_id: servable.id,
       ...(typeof command.args.lifetimeBudget === 'number'
         ? { spend_cap: toMicros(command.args.lifetimeBudget) }

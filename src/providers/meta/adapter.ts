@@ -3,6 +3,7 @@ import type { AdsBillingClaim } from '../../types/preflight.js';
 import { HttpTimeoutError, type HttpTransport } from '../http.js';
 import type { MetricsFetchOutcome, MetricsFetchQuery } from '../metrics.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from '../port.js';
+import { resolveMetaObjective } from '../../domain/objectives.js';
 
 export const META_GRAPH_API_BASE = 'https://graph.facebook.com/v21.0';
 
@@ -200,7 +201,11 @@ export class MetaAdsAdapter implements ProviderAdapter {
       }
     }
 
-    const extendedArgs = args as typeof args & { lifetimeBudget?: number; approvalToken?: string };
+    const extendedArgs = args as typeof args & {
+      lifetimeBudget?: number;
+      approvalToken?: string;
+      conversionSignalVerified?: boolean;
+    };
     const hasDailyBudget = typeof args.dailyBudget === 'number' && args.dailyBudget > 0;
     const hasLifetimeBudget =
       typeof extendedArgs.lifetimeBudget === 'number' && extendedArgs.lifetimeBudget > 0;
@@ -230,7 +235,10 @@ export class MetaAdsAdapter implements ProviderAdapter {
 
     const campRes = await this.post(`${this.accountId}/campaigns`, {
       name: args.name,
-      objective: args.objective ?? 'OUTCOME_TRAFFIC',
+      objective: resolveMetaObjective({
+        objective: args.objective,
+        conversionSignalVerified: extendedArgs.conversionSignalVerified,
+      }),
       status: launchStatus,
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
