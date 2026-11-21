@@ -17,6 +17,7 @@ import { toMicros } from './money.js';
 import { normalizeRedditMetrics, parseRedditReportPage } from './normalize-metrics.js';
 import { jobPostId, jobStatus, toRedditStructuredPostData } from './structured-post.js';
 import { redditSameOrigin, toRedditHourUtc } from './time.js';
+import { resolveRedditObjective } from '../../domain/objectives.js';
 
 const SCAFFOLD_MAPPING = {
   launchKind: 'campaign_ad_group_scaffold' as const,
@@ -400,10 +401,14 @@ export class RedditAdsAdapter implements ProviderAdapter {
       };
     }
 
+    const extArgs = command.args as typeof command.args & { conversionSignalVerified?: boolean };
     const created = await this.client.createCampaign(this.reddit.adAccountId, {
       name: command.args.name,
       configured_status: 'ACTIVE',
-      objective: 'CLICKS',
+      objective: resolveRedditObjective({
+        objective: command.args.objective,
+        conversionSignalVerified: extArgs.conversionSignalVerified,
+      }),
       funding_instrument_id: servable.id,
     });
     if (created.kind !== 'ok') {

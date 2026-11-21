@@ -3,6 +3,7 @@ import type { AdsBillingClaim } from '../../types/preflight.js';
 import { HttpTimeoutError, type HttpTransport } from '../http.js';
 import type { MetricsFetchOutcome, MetricsFetchQuery } from '../metrics.js';
 import type { ProviderAdapter, ProviderCommand, ProviderOutcome } from '../port.js';
+import { resolveMetaObjective } from '../../domain/objectives.js';
 
 export const META_GRAPH_API_BASE = 'https://graph.facebook.com/v21.0';
 
@@ -200,9 +201,13 @@ export class MetaAdsAdapter implements ProviderAdapter {
       }
     }
 
+    const extArgs = args as typeof args & { conversionSignalVerified?: boolean };
     const campRes = await this.post(`${this.accountId}/campaigns`, {
       name: args.name,
-      objective: args.objective ?? 'OUTCOME_TRAFFIC',
+      objective: resolveMetaObjective({
+        objective: args.objective,
+        conversionSignalVerified: extArgs.conversionSignalVerified,
+      }),
       status: 'ACTIVE',
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
