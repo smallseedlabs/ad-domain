@@ -305,7 +305,9 @@ describe('executeCampaignAction [fake-store]', () => {
   it('syncs meta account mappings through CompositeProviderAdapter', async () => {
     const reddit = new FakeProvider();
     const meta = new FakeProvider();
-    meta.syncAccountMapping = async () => ({ accountId: 'act_1477441417672424', connectionId: 'conn_meta_1' });
+    Object.assign(meta, {
+      syncAccountMapping: async () => ({ accountId: 'act_1477441417672424', connectionId: 'conn_meta_1' }),
+    });
     const composite = new CompositeProviderAdapter({ reddit, meta });
     const store = new MemoryStore();
 
