@@ -9,6 +9,7 @@ import type {
   ClaimNew,
   CommandRecord,
   CommandStatus,
+  MetricsSnapshotRecord,
   ProviderAccountRecord,
 } from './port.js';
 
@@ -34,6 +35,7 @@ export class MemoryStore implements AdsStore {
   readonly campaigns = new Map<string, CampaignRecord>();
   readonly accounts = new Map<string, ProviderAccountRecord>();
   readonly outbox: AuditEvent[] = [];
+  readonly metricsSnapshots: MetricsSnapshotRecord[] = [];
   private readonly mutex = new Mutex();
 
   private key(workspaceId: string, id: string): string {
@@ -116,6 +118,10 @@ export class MemoryStore implements AdsStore {
       .sort((a, b) => (a.workspaceId + a.probaCampaignId).localeCompare(b.workspaceId + b.probaCampaignId))
       .slice(0, limit)
       .map((c) => ({ ...c }));
+  }
+
+  async recordMetricsSnapshot(snapshot: MetricsSnapshotRecord): Promise<void> {
+    this.metricsSnapshots.push({ ...snapshot });
   }
 
   async ping(): Promise<void> {

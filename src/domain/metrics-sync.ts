@@ -31,6 +31,7 @@ const SYNC_CALLER_ISSUER = 'proba-ads';
 const SYNC_CALLER_SUBJECT = 'metrics-sync';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+export const LEARNING_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const SYSTEM_WORKSPACE = 'seedbed';
 
 export interface MetricsSyncDeps extends AnalyticsDeps {
@@ -52,6 +53,7 @@ export interface MetricsSyncRunReport {
   periodStart: string;
   periodEnd: string;
   campaigns: number;
+  hasLearningCampaign: boolean;
   counts: Record<CampaignSyncOutcome, number>;
   results: CampaignSyncResult[];
 }
@@ -110,7 +112,50 @@ async function syncCampaign(
       syncCaller(campaign, deps.clock.now()),
       metricsSyncIdempotencyKey(campaign.probaCampaignId, window.periodStart, window.periodEnd)
     );
-    if (result.ok) return { ...base, outcome: 'ingested' };
+    if (result.ok) {
+      if (deps.store.recordMetricsSnapshot) {
+        const observations =
+          (
+            result.data as {
+              observations?: Array<{
+                metrics?: {
+                  impressions?: number | null;
+                  clicks?: number | null;
+                  spend?: number | null;
+                  conversions?: number | null;
+                };
+              }>;
+            }
+          )?.observations ?? [];
+        const sumNullable = (
+          key: 'impressions' | 'clicks' | 'spend' | 'conversions'
+        ): number | null => {
+          let seen = false;
+          let total = 0;
+          for (const obs of observations) {
+            const val = obs.metrics?.[key];
+            if (typeof val === 'number' && Number.isFinite(val)) {
+              seen = true;
+              total += val;
+            }
+          }
+          return seen ? total : null;
+        };
+        await deps.store.recordMetricsSnapshot({
+          workspaceId: campaign.workspaceId,
+          probaCampaignId: campaign.probaCampaignId,
+          platform: campaign.platform,
+          periodStart: window.periodStart,
+          periodEnd: window.periodEnd,
+          impressions: sumNullable('impressions'),
+          clicks: sumNullable('clicks'),
+          spend: sumNullable('spend'),
+          conversions: sumNullable('conversions'),
+          recordedAt: deps.clock.now().toISOString(),
+        });
+      }
+      return { ...base, outcome: 'ingested' };
+    }
     return { ...base, outcome: 'failed', code: result.code };
   } catch (err) {
     if (err instanceof AmbiguousOutcomeError) {
@@ -156,7 +201,14 @@ export async function runMetricsSyncOnce(deps: MetricsSyncDeps): Promise<Metrics
   const runId = randomUUID();
   const window = metricsSyncWindow(deps.clock.now(), deps.config.metricsSync.lookbackDays);
   const counts: Record<CampaignSyncOutcome, number> = { ingested: 0, failed: 0, in_flight: 0, error: 0 };
-  const report: MetricsSyncRunReport = { runId, ...window, campaigns: 0, counts, results: [] };
+  const report: MetricsSyncRunReport = {
+    runId,
+    ...window,
+    campaigns: 0,
+    hasLearningCampaign: false,
+    counts,
+    results: [],
+  };
   const startedAt = deps.clock.now().getTime();
 
   let campaigns: CampaignRecord[];
@@ -185,6 +237,9 @@ export async function runMetricsSyncOnce(deps: MetricsSyncDeps): Promise<Metrics
   }
 
   report.campaigns = campaigns.length;
+  report.hasLearningCampaign = campaigns.some(
+    (c) => c.status === 'active' && c.inLearning === true
+  );
   for (const campaign of campaigns) {
     const result = await syncCampaign(deps, campaign, window);
     counts[result.outcome] += 1;
@@ -238,13 +293,23 @@ export class MetricsSyncScheduler {
     return this.deps.config.metricsSync.enabled;
   }
 
+  nextIntervalMs(report?: MetricsSyncRunReport): number {
+    if (report?.hasLearningCampaign) {
+      return LEARNING_SYNC_INTERVAL_MS;
+    }
+    return this.deps.config.metricsSync.intervalMs;
+  }
+
   start(): void {
     if (!this.enabled || this.timer || this.stopped) return;
-    const { initialDelayMs, intervalMs } = this.deps.config.metricsSync;
+    const { initialDelayMs } = this.deps.config.metricsSync;
     const schedule = (delay: number) => {
       if (this.stopped) return;
       this.timer = setTimeout(() => {
-        void this.tick().finally(() => schedule(intervalMs));
+        void this.tick().then(
+          (report) => schedule(this.nextIntervalMs(report)),
+          () => schedule(this.nextIntervalMs())
+        );
       }, delay);
       this.timer.unref();
     };

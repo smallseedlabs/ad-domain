@@ -34,6 +34,7 @@ export interface CampaignRecord {
   providerAdGroupId?: string;
   providerAdId?: string;
   reconcile?: Record<string, unknown> | null;
+  inLearning?: boolean;
 }
 
 export interface ProviderAccountRecord {
@@ -86,6 +87,19 @@ export interface AdsTx {
 /** Campaign statuses the metrics sync reads reports for (read-only; never drafts, failed or ambiguous rows). */
 export const METRICS_SYNC_STATUSES: readonly CampaignStatus[] = ['active', 'paused'];
 
+export interface MetricsSnapshotRecord {
+  workspaceId: string;
+  probaCampaignId: string;
+  platform: AdPlatform;
+  periodStart: string;
+  periodEnd: string;
+  impressions: number | null;
+  clicks: number | null;
+  spend: number | null;
+  conversions: number | null;
+  recordedAt: string;
+}
+
 export interface AdsStore {
   withTransaction<T>(fn: (tx: AdsTx) => Promise<T>): Promise<T>;
   /**
@@ -93,6 +107,7 @@ export interface AdsStore {
    * across workspaces (the scheduler then scopes each fetch to the row's own workspace and user).
    */
   listMetricsSyncTargets(platform: AdPlatform, limit: number): Promise<CampaignRecord[]>;
+  recordMetricsSnapshot?(snapshot: MetricsSnapshotRecord): Promise<void>;
   ping(): Promise<void>;
   close(): Promise<void>;
   claimOutbox?(limit: number, leaseMs: number): Promise<Array<{ id: string; event: AuditEvent }>>;
