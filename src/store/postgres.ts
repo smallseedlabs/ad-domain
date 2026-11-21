@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import type { AuditEvent } from '../protocol.js';
 import type { AdPlatform } from '../types/http.js';
+import { evaluateLedgerReservation } from '../domain/ledger.js';
 import type {
   AdsStore,
   AdsTx,
@@ -195,6 +197,123 @@ function txImpl(client: Queryable): AdsTx {
       await client.query(
         `INSERT INTO ads.audit_outbox (event_id, payload) VALUES ($1::uuid, $2::jsonb) ON CONFLICT (event_id) DO NOTHING`,
         [event.eventId, JSON.stringify(event)]
+      );
+    },
+    async setGoalBudgetCaps(workspaceId, goalId, caps) {
+      await client.query(
+        `INSERT INTO ads.goal_budget_caps (workspace_id, goal_id, lifetime_cap_usd, daily_cap_usd, max_live_campaigns, updated_at)
+         VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (workspace_id, goal_id) DO UPDATE SET
+           lifetime_cap_usd = EXCLUDED.lifetime_cap_usd,
+           daily_cap_usd = EXCLUDED.daily_cap_usd,
+           max_live_campaigns = EXCLUDED.max_live_campaigns,
+           updated_at = now()`,
+        [workspaceId, goalId, caps.goalLifetimeCapUsd, caps.goalDailyCapUsd, caps.maxLivePerGoal]
+      );
+    },
+    async getGoalBudgetCaps(workspaceId, goalId) {
+      const res = await client.query(
+        `SELECT lifetime_cap_usd, daily_cap_usd, max_live_campaigns
+         FROM ads.goal_budget_caps
+         WHERE workspace_id = $1 AND goal_id = $2`,
+        [workspaceId, goalId]
+      );
+      const row = res.rows[0];
+      if (!row) return undefined;
+      return {
+        goalLifetimeCapUsd: Number(row.lifetime_cap_usd),
+        goalDailyCapUsd: Number(row.daily_cap_usd),
+        maxLivePerGoal: Number(row.max_live_campaigns),
+      };
+    },
+    async reserveGoalBudget(input) {
+      // Serialize concurrent budget reservations across the workspace in this transaction.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.workspaceId]);
+
+      const existing = await client.query<{ id: string }>(
+        `SELECT id FROM ads.budget_ledger
+         WHERE workspace_id = $1 AND idempotency_key = $2 AND kind = 'reserve'`,
+        [input.workspaceId, input.idempotencyKey]
+      );
+      if (existing.rows[0]) {
+        return { ok: true, entryId: String(existing.rows[0].id) };
+      }
+
+      const totals = await client.query<{
+        goal_lifetime: number;
+        goal_daily: number;
+        account_daily: number;
+        goal_live_count: number;
+      }>(
+        `WITH active_reserves AS (
+           SELECT r.*
+           FROM ads.budget_ledger r
+           WHERE r.workspace_id = $1
+             AND r.kind = 'reserve'
+             AND NOT EXISTS (
+               SELECT 1 FROM ads.budget_ledger rel
+               WHERE rel.workspace_id = r.workspace_id
+                 AND rel.kind = 'release'
+                 AND rel.idempotency_key = r.idempotency_key || ':release'
+             )
+         )
+         SELECT
+           COALESCE(SUM(CASE WHEN goal_id = $2 THEN amount_usd ELSE 0 END), 0) AS goal_lifetime,
+           COALESCE(SUM(CASE WHEN goal_id = $2 THEN daily_allocation_usd ELSE 0 END), 0) AS goal_daily,
+           COALESCE(SUM(daily_allocation_usd), 0) AS account_daily,
+           COUNT(DISTINCT CASE WHEN goal_id = $2 THEN campaign_id ELSE NULL END)::int AS goal_live_count
+         FROM active_reserves`,
+        [input.workspaceId, input.goalId]
+      );
+
+      const row = totals.rows[0];
+      const check = evaluateLedgerReservation(
+        {
+          goalReservedLifetimeUsd: Number(row?.goal_lifetime ?? 0),
+          goalReservedDailyUsd: Number(row?.goal_daily ?? 0),
+          accountReservedDailyUsd: Number(row?.account_daily ?? 0),
+          goalLiveCampaignCount: Number(row?.goal_live_count ?? 0),
+        },
+        input.caps,
+        {
+          lifetimeAllocationUsd: input.lifetimeAllocationUsd,
+          dailyAllocationUsd: input.dailyAllocationUsd,
+          isNewLiveCampaign: input.isNewLiveCampaign,
+        }
+      );
+
+      if (!check.ok) return check;
+
+      const entryId = randomUUID();
+      await client.query(
+        `INSERT INTO ads.budget_ledger
+          (id, workspace_id, goal_id, campaign_id, platform, kind, amount_usd, daily_allocation_usd, currency, idempotency_key, created_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, 'reserve', $6, $7, $8, $9, $10::timestamptz)`,
+        [
+          entryId,
+          input.workspaceId,
+          input.goalId,
+          input.campaignId,
+          input.platform,
+          input.lifetimeAllocationUsd,
+          input.dailyAllocationUsd,
+          input.currency,
+          input.idempotencyKey,
+          input.nowIso,
+        ]
+      );
+      return { ok: true, entryId };
+    },
+    async releaseGoalBudget(input) {
+      const releaseKey = `${input.idempotencyKey}:release`;
+      await client.query(
+        `INSERT INTO ads.budget_ledger
+          (id, workspace_id, goal_id, campaign_id, platform, kind, amount_usd, daily_allocation_usd, currency, idempotency_key, created_at)
+         SELECT $1::uuid, workspace_id, goal_id, campaign_id, platform, 'release', amount_usd, daily_allocation_usd, currency, $2, $3::timestamptz
+         FROM ads.budget_ledger
+         WHERE workspace_id = $4 AND idempotency_key = $5 AND kind = 'reserve'
+         ON CONFLICT (workspace_id, idempotency_key, kind) DO NOTHING`,
+        [randomUUID(), releaseKey, input.nowIso, input.workspaceId, input.idempotencyKey]
       );
     },
   };

@@ -291,9 +291,42 @@ async function executeOnce(
     try {
       if (args.verb === 'ads.create_campaign') {
         const account = await requireAccount(tx, request.workspaceId, args, args.platform!);
+        const probaCampaignId = randomUUID();
+        const goalId = request.goalId ?? 'default';
+        const dailyAllocationUsd = args.dailyBudget!;
+        const lifetimeAllocationUsd =
+          (args as { lifetimeBudget?: number }).lifetimeBudget ?? dailyAllocationUsd;
+        const storedCaps = await tx.getGoalBudgetCaps(request.workspaceId, goalId);
+        const accountDailyCapUsd = deps.config.ads.maxDailyBudget ?? Number.MAX_SAFE_INTEGER;
+        const ledgerCheck = await tx.reserveGoalBudget({
+          workspaceId: request.workspaceId,
+          goalId,
+          campaignId: probaCampaignId,
+          platform: args.platform!,
+          idempotencyKey,
+          lifetimeAllocationUsd,
+          dailyAllocationUsd,
+          currency: args.currency!,
+          nowIso: deps.clock.now().toISOString(),
+          isNewLiveCampaign: true,
+          caps: {
+            goalLifetimeCapUsd: storedCaps?.goalLifetimeCapUsd ?? Number.MAX_SAFE_INTEGER,
+            goalDailyCapUsd:
+              storedCaps?.goalDailyCapUsd ??
+              deps.config.ads.maxDailyBudget ??
+              Number.MAX_SAFE_INTEGER,
+            accountDailyCapUsd,
+            maxLivePerGoal: storedCaps?.maxLivePerGoal ?? 100,
+          },
+        });
+        if (!ledgerCheck.ok) {
+          const result = fail(ledgerCheck.code, ledgerCheck.message);
+          await finishRejected(tx, deps, request, idempotencyKey, args, result);
+          return { kind: 'done' as const, result };
+        }
         campaign = {
           workspaceId: request.workspaceId,
-          probaCampaignId: randomUUID(),
+          probaCampaignId,
           userId: request.userId,
           goalId: request.goalId,
           name: args.name!,
@@ -319,6 +352,42 @@ async function executeOnce(
         }
         if (args.providerAccountId && existing.providerAccountId && args.providerAccountId !== existing.providerAccountId) {
           throw new OwnershipError('command targets a different provider account than this campaign mapping');
+        }
+        if (
+          args.verb === 'ads.update_campaign' &&
+          typeof args.dailyBudget === 'number' &&
+          args.dailyBudget > existing.dailyBudget
+        ) {
+          const goalId = existing.goalId ?? request.goalId ?? 'default';
+          const dailyDelta = args.dailyBudget - existing.dailyBudget;
+          const storedCaps = await tx.getGoalBudgetCaps(request.workspaceId, goalId);
+          const accountDailyCapUsd = deps.config.ads.maxDailyBudget ?? Number.MAX_SAFE_INTEGER;
+          const ledgerCheck = await tx.reserveGoalBudget({
+            workspaceId: request.workspaceId,
+            goalId,
+            campaignId: existing.probaCampaignId,
+            platform: existing.platform,
+            idempotencyKey,
+            lifetimeAllocationUsd: dailyDelta,
+            dailyAllocationUsd: dailyDelta,
+            currency: existing.currency,
+            nowIso: deps.clock.now().toISOString(),
+            isNewLiveCampaign: false,
+            caps: {
+              goalLifetimeCapUsd: storedCaps?.goalLifetimeCapUsd ?? Number.MAX_SAFE_INTEGER,
+              goalDailyCapUsd:
+                storedCaps?.goalDailyCapUsd ??
+                deps.config.ads.maxDailyBudget ??
+                Number.MAX_SAFE_INTEGER,
+              accountDailyCapUsd,
+              maxLivePerGoal: storedCaps?.maxLivePerGoal ?? 100,
+            },
+          });
+          if (!ledgerCheck.ok) {
+            const result = fail(ledgerCheck.code, ledgerCheck.message);
+            await finishRejected(tx, deps, request, idempotencyKey, args, result);
+            return { kind: 'done' as const, result };
+          }
         }
         campaign = existing;
       }
@@ -445,6 +514,13 @@ async function executeOnce(
       await tx.updateCampaignCas(request.workspaceId, current.probaCampaignId, current.version, {
         lockCommandKey: null,
         status: current.status,
+      });
+      await tx.releaseGoalBudget({
+        workspaceId: request.workspaceId,
+        goalId: current.goalId ?? request.goalId ?? 'default',
+        campaignId: current.probaCampaignId,
+        idempotencyKey,
+        nowIso: deps.clock.now().toISOString(),
       });
       await tx.completeCommand({
         workspaceId: request.workspaceId,
