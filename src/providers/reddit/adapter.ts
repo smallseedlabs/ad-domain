@@ -400,11 +400,25 @@ export class RedditAdsAdapter implements ProviderAdapter {
       };
     }
 
+    const launchStatus =
+      process.env.AUTO_ACTIVATE_ON_LAUNCH === 'true' && Boolean(command.args.approvalToken)
+        ? 'ACTIVE'
+        : 'PAUSED';
+    const objective =
+      command.args.objective === 'OUTCOME_AWARENESS'
+        ? 'IMPRESSIONS'
+        : command.args.objective === 'OUTCOME_SALES' || command.args.objective === 'OUTCOME_LEADS'
+          ? 'CONVERSIONS'
+          : 'CLICKS';
+
     const created = await this.client.createCampaign(this.reddit.adAccountId, {
       name: command.args.name,
-      configured_status: 'ACTIVE',
-      objective: 'CLICKS',
+      configured_status: launchStatus,
+      objective,
       funding_instrument_id: servable.id,
+      ...(typeof command.args.lifetimeBudget === 'number'
+        ? { spend_cap: toMicros(command.args.lifetimeBudget) }
+        : {}),
     });
     if (created.kind !== 'ok') {
       return httpKindToOutcome(created.kind, created.message) ?? { kind: 'refused', code: 'provider_refused', message: created.message };
@@ -427,13 +441,15 @@ export class RedditAdsAdapter implements ProviderAdapter {
       const targeting = toRedditTargeting(command.args.targeting);
       const scheduleFields = toRedditScheduleFields(command.args.schedule);
       const startTime = scheduleFields.start_time ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const lifetimeBudget = command.args.lifetimeBudget;
+      const hasLifetimeBudget = typeof lifetimeBudget === 'number';
       const group = await this.client.createAdGroup(this.reddit.adAccountId, {
         type: 'MANUAL',
         name: `${command.args.name ?? 'ad-group'}`.slice(0, 200),
         campaign_id: campaignId,
-        configured_status: 'ACTIVE',
-        goal_type: 'DAILY_SPEND',
-        goal_value: toMicros(command.args.dailyBudget),
+        configured_status: launchStatus,
+        goal_type: hasLifetimeBudget ? 'LIFETIME_SPEND' : 'DAILY_SPEND',
+        goal_value: toMicros(hasLifetimeBudget ? lifetimeBudget : command.args.dailyBudget),
         bid_type: 'CPC',
         bid_strategy: 'BIDLESS',
         bid_value: null,
@@ -497,7 +513,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
       name: command.args.name,
       post_id: createdPostId,
       ...(isTextPost ? {} : { click_url: landingPageUrl }),
-      configured_status: 'ACTIVE',
+      configured_status: launchStatus,
     });
     if (ad.kind !== 'ok') {
       if (ad.kind === 'ambiguous' || ad.kind === 'timeout') {

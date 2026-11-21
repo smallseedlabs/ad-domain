@@ -686,4 +686,54 @@ describe('RedditAdsAdapter [injected-http]', () => {
     const patchPostCall = http.calls.find((call) => call.method === 'PATCH' && call.url.includes('/posts/'));
     expect(JSON.parse(patchPostCall!.body ?? '{}')).toEqual({ data: { allow_comments: true } });
   });
+
+  it('H0-03: creates Reddit campaigns PAUSED by default, sets spend_cap + LIFETIME_SPEND, and maps objective', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 201, body: { data: { id: 'cmp_h03', ad_account_id: ACCOUNT } } },
+      { status: 201, body: { data: { id: 'grp_h03' } } },
+      { status: 201, body: { data: { id: 'ad_h03' } } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'H0-03 Launch',
+          platform: 'reddit',
+          dailyBudget: 10,
+          lifetimeBudget: 120,
+          objective: 'OUTCOME_AWARENESS',
+          currency: 'USD',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          providerPostId: FIXTURE_PROVIDER_POST_ID,
+          researchAcceptance: FIXTURE_RESEARCH_ACCEPTANCE,
+          schedule: { endTime: '2026-12-01T00:00:00Z' },
+        },
+      })
+    );
+    expect(result.kind).toBe('success');
+
+    const campaignCall = http.calls.find((call) => call.url.endsWith('/campaigns'));
+    const campaignBody = JSON.parse(campaignCall!.body ?? '{}') as {
+      data?: { configured_status?: string; spend_cap?: number; objective?: string };
+    };
+    expect(campaignBody.data?.configured_status).toBe('PAUSED');
+    expect(campaignBody.data?.spend_cap).toBe(120_000_000);
+    expect(campaignBody.data?.objective).toBe('IMPRESSIONS');
+
+    const adGroupCall = http.calls.find((call) => call.url.endsWith('/ad_groups'));
+    const adGroupBody = JSON.parse(adGroupCall!.body ?? '{}') as {
+      data?: { configured_status?: string; goal_type?: string; goal_value?: number; end_time?: string };
+    };
+    expect(adGroupBody.data?.configured_status).toBe('PAUSED');
+    expect(adGroupBody.data?.goal_type).toBe('LIFETIME_SPEND');
+    expect(adGroupBody.data?.goal_value).toBe(120_000_000);
+    expect(adGroupBody.data?.end_time).toBe('2026-12-01T00:00:00Z');
+
+    const adCall = http.calls.find((call) => call.url.endsWith('/ads'));
+    const adBody = JSON.parse(adCall!.body ?? '{}') as { data?: { configured_status?: string } };
+    expect(adBody.data?.configured_status).toBe('PAUSED');
+  });
 });
