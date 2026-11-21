@@ -44,6 +44,7 @@ export function fixtureCreateArgs(extra: Record<string, unknown> = {}): Record<s
     dailyBudget: 12,
     currency: 'USD',
     platform: 'reddit',
+    targeting: { geolocations: ['US'] },
     creative: { ...FIXTURE_CREATIVE },
     researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
     ...extra,

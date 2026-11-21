@@ -51,6 +51,7 @@ function createCommand(overrides: Partial<ProviderCommand> = {}): ProviderComman
       dailyBudget: 12,
       currency: 'USD',
       platform: 'reddit',
+      targeting: { geolocations: ['US'] },
       providerAccountId: ACCOUNT,
       providerPostId: FIXTURE_PROVIDER_POST_ID,
       researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
@@ -217,6 +218,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           dailyBudget: 12,
           currency: 'USD',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           providerAccountId: ACCOUNT,
           researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
         },
@@ -239,6 +241,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           dailyBudget: 12,
           currency: 'USD',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           providerAccountId: ACCOUNT,
           creative: { ...FIXTURE_CREATIVE },
           researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
@@ -275,6 +278,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           dailyBudget: 12,
           currency: 'USD',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           providerAccountId: ACCOUNT,
           creative: { ...FIXTURE_CREATIVE },
           researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
@@ -322,6 +326,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           dailyBudget: 12,
           currency: 'USD',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           providerAccountId: ACCOUNT,
           creative: { ...FIXTURE_CREATIVE },
           researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
@@ -362,6 +367,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           dailyBudget: 12,
           currency: 'USD',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           providerAccountId: ACCOUNT,
           creative: { ...FIXTURE_CREATIVE },
           researchAcceptance: { ...FIXTURE_RESEARCH_ACCEPTANCE },
@@ -676,6 +682,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           verb: 'ads.create_campaign',
           name: 'Text Ad Campaign',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           dailyBudget: 5,
           currency: 'GBP',
           landingPageUrl: FIXTURE_LANDING_PAGE_URL,
@@ -715,6 +722,23 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(JSON.parse(patchPostCall!.body ?? '{}')).toEqual({ data: { allow_comments: true } });
   });
 
+  it('refuses create before campaign POST when targeting is omitted', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const cmd = createCommand();
+    delete cmd.args.targeting;
+    const result = await adapter.mutate(cmd);
+    expect(result).toEqual({
+      kind: 'refused',
+      code: 'missing_targeting',
+      message: 'targeting (geolocations or communities) is required for Reddit campaign launch; no untargeted fallback is allowed.',
+    });
+    expect(http.calls.some((call) => call.method === 'POST')).toBe(false);
+  });
+
   it('H0-03: creates Reddit campaigns PAUSED by default, sets spend_cap + LIFETIME_SPEND, and maps objective', async () => {
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
@@ -730,6 +754,7 @@ describe('RedditAdsAdapter [injected-http]', () => {
           verb: 'ads.create_campaign',
           name: 'H0-03 Launch',
           platform: 'reddit',
+          targeting: { geolocations: ['US'] },
           dailyBudget: 10,
           lifetimeBudget: 120,
           objective: 'OUTCOME_AWARENESS',

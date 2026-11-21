@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     provider: runtime.provider,
     clock: runtime.clock,
     logger: runtime.logger,
+    watchdogPort: runtime.watchdogPort,
   });
   metricsSync.start();
   runtime.logger.info(

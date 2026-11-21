@@ -43,6 +43,14 @@ export function evaluateBillingGate(input: {
         message: `dailyBudget exceeds the configured Ads-domain cap ${config.ads.maxDailyBudget}`,
       };
     }
+    if (config.ads.maxMonthlySpend !== null && dailyBudget * 30 > config.ads.maxMonthlySpend) {
+      return {
+        ok: false,
+        skipBalance: false,
+        code: 'budget_cap',
+        message: `projected 30-day spend (${dailyBudget * 30}) exceeds configured monthly cap ${config.ads.maxMonthlySpend}`,
+      };
+    }
   }
 
   if (claim.kind === 'verified') {

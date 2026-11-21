@@ -244,7 +244,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         {
           traceId,
           workspaceId: body.workspaceId,
-          userId: body.userId ?? campaign.userId,
+          userId: campaign.userId,
           ...(campaign.goalId ? { goalId: campaign.goalId } : {}),
           verb: 'ads.pause_campaign',
           initiatedBy: 'user',

@@ -394,6 +394,14 @@ export class RedditAdsAdapter implements ProviderAdapter {
       };
     }
 
+    if (typeof command.args.dailyBudget === 'number' && !toRedditTargeting(command.args.targeting)) {
+      return {
+        kind: 'refused',
+        code: 'missing_targeting',
+        message: 'targeting (geolocations or communities) is required for Reddit campaign launch; no untargeted fallback is allowed.',
+      };
+    }
+
     const extArgs = command.args as typeof command.args & { conversionSignalVerified?: boolean };
     const launchStatus =
       process.env.AUTO_ACTIVATE_ON_LAUNCH === 'true' && Boolean(command.args.approvalToken)
@@ -430,7 +438,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
 
     let adGroupId: string | undefined;
     if (typeof command.args.dailyBudget === 'number') {
-      const targeting = toRedditTargeting(command.args.targeting);
+      const targeting = toRedditTargeting(command.args.targeting)!;
       const scheduleFields = toRedditScheduleFields(command.args.schedule);
       const startTime = scheduleFields.start_time ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
       const lifetimeBudget = command.args.lifetimeBudget;

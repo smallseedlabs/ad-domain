@@ -5,6 +5,7 @@ import type { VerifiedCaller } from '../ports/auth.js';
 import { adsAuditEvent } from '../audit/emit.js';
 import type { CampaignRecord } from '../store/port.js';
 import { executeMetricsFetch, type AnalyticsDeps } from './analytics.js';
+import { runWatchdogTick, type WatchdogPort } from './watchdog.js';
 
 /**
  * Scheduled Reddit metrics sync.
@@ -36,6 +37,7 @@ const SYSTEM_WORKSPACE = 'seedbed';
 
 export interface MetricsSyncDeps extends AnalyticsDeps {
   logger?: Logger;
+  watchdogPort?: WatchdogPort;
 }
 
 export type CampaignSyncOutcome = 'ingested' | 'failed' | 'in_flight' | 'error';
@@ -46,6 +48,7 @@ export interface CampaignSyncResult {
   traceId: string;
   outcome: CampaignSyncOutcome;
   code?: string;
+  observedDailySpend?: number | null;
 }
 
 export interface MetricsSyncRunReport {
@@ -141,6 +144,7 @@ async function syncCampaign(
           }
           return seen ? total : null;
         };
+        const observedDailySpend = sumNullable('spend');
         await deps.store.recordMetricsSnapshot({
           workspaceId: campaign.workspaceId,
           probaCampaignId: campaign.probaCampaignId,
@@ -149,10 +153,11 @@ async function syncCampaign(
           periodEnd: window.periodEnd,
           impressions: sumNullable('impressions'),
           clicks: sumNullable('clicks'),
-          spend: sumNullable('spend'),
+          spend: observedDailySpend,
           conversions: sumNullable('conversions'),
           recordedAt: deps.clock.now().toISOString(),
         });
+        return { ...base, outcome: 'ingested', observedDailySpend };
       }
       return { ...base, outcome: 'ingested' };
     }
@@ -244,6 +249,36 @@ export async function runMetricsSyncOnce(deps: MetricsSyncDeps): Promise<Metrics
     const result = await syncCampaign(deps, campaign, window);
     counts[result.outcome] += 1;
     report.results.push(result);
+  }
+
+  if (deps.watchdogPort) {
+    const observations = campaigns
+      .map((campaign, idx) => ({
+        campaign,
+        observedDailySpend: report.results[idx]?.observedDailySpend,
+      }))
+      .filter((o): o is { campaign: CampaignRecord; observedDailySpend: number } =>
+        typeof o.observedDailySpend === 'number' && Number.isFinite(o.observedDailySpend)
+      );
+    if (observations.length > 0) {
+      await runWatchdogTick({
+        port: deps.watchdogPort,
+        listActiveObservations: async () => observations,
+        recordEvent: async (event) => {
+          await audit(deps, {
+            action: 'campaign.updated',
+            outcome: 'success',
+            traceId: runId,
+            workspaceId: event.workspaceId,
+            clock: deps.clock,
+            details: { source: 'watchdog', ...event },
+          });
+        },
+        logger: deps.logger,
+      }).catch((err) => {
+        deps.logger?.warn({ runId, errorName: errorName(err) }, 'watchdog tick after metrics sync failed');
+      });
+    }
   }
 
   const durationMs = Math.max(0, deps.clock.now().getTime() - startedAt);
