@@ -453,29 +453,57 @@ describe('RedditAdsAdapter [injected-http]', () => {
     expect(mutationCalls(http)).toHaveLength(3);
   });
 
-  it('does not claim a launch when ad create is refused after campaign and ad group exist', async () => {
+  it('fails closed and pauses campaign when ad create is refused after campaign and ad group exist', async () => {
     const http = new ScriptedHttpTransport([
       { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
       { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
       { status: 201, body: { data: { id: 'cmp_1', ad_account_id: ACCOUNT } } },
       { status: 201, body: { data: { id: 'grp_1' } } },
       { status: 400, body: { error: { message: 'invalid ad' } } },
+      { status: 200, body: { data: { id: 'cmp_1', configured_status: 'PAUSED' } } },
     ]);
     const adapter = new RedditAdsAdapter(redditConfig(), http);
     const result = await adapter.mutate(createCommand());
-    expect(result).toEqual({
-      kind: 'success',
-      mapping: {
-        provider: 'reddit',
-        providerCampaignId: 'cmp_1',
-        providerAdGroupId: 'grp_1',
-        providerAccountId: ACCOUNT,
-        launchKind: 'campaign_ad_group_scaffold',
-        deliverableAd: false,
-        clickUrlPushed: false,
-        missingEntities: ['ad', 'click_url'],
-      },
-    });
+    expect(result.kind).toBe('refused');
+    const pauseCall = http.calls.find(
+      (call) => call.method === 'PATCH' && call.url.endsWith('/campaigns/cmp_1')
+    );
+    expect(pauseCall).toBeDefined();
+    expect(JSON.parse(pauseCall!.body ?? '{}')).toEqual({ data: { configured_status: 'PAUSED' } });
+  });
+
+  it('H0-04: fails closed without untargeted fallback and pauses campaign when targeted createAdGroup is refused', async () => {
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { data: { id: FIXTURE_PROVIDER_POST_ID } } },
+      { status: 200, body: { data: [{ id: 'fi_1', is_servable: true, currency: 'USD' }] } },
+      { status: 201, body: { data: { id: 'cmp_h04', ad_account_id: ACCOUNT } } },
+      { status: 400, body: { error: { message: 'invalid targeting' } } },
+      { status: 200, body: { data: { id: 'cmp_h04', configured_status: 'PAUSED' } } },
+    ]);
+    const adapter = new RedditAdsAdapter(redditConfig(), http);
+    const result = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'H0-04 Targeted',
+          platform: 'reddit',
+          dailyBudget: 10,
+          currency: 'USD',
+          landingPageUrl: FIXTURE_LANDING_PAGE_URL,
+          providerPostId: FIXTURE_PROVIDER_POST_ID,
+          researchAcceptance: FIXTURE_RESEARCH_ACCEPTANCE,
+          targeting: { communities: ['typescript'], geolocations: ['US'] },
+        },
+      })
+    );
+    expect(result.kind).toBe('refused');
+    const adGroupCalls = http.calls.filter((call) => call.url.endsWith('/ad_groups'));
+    expect(adGroupCalls).toHaveLength(1);
+    const pauseCall = http.calls.find(
+      (call) => call.method === 'PATCH' && call.url.endsWith('/campaigns/cmp_h04')
+    );
+    expect(pauseCall).toBeDefined();
+    expect(JSON.parse(pauseCall!.body ?? '{}')).toEqual({ data: { configured_status: 'PAUSED' } });
   });
 
   it('refuses landingPageUrl update when no providerAdId mapping exists', async () => {
