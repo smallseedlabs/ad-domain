@@ -37,6 +37,7 @@ export interface AdsServiceConfig {
   ads: {
     preflightFreshnessMs: number;
     maxDailyBudget: number | null;
+    maxMonthlySpend: number | null;
     maxDailyBudgetCurrency: string | null;
     allowTestFakes: boolean;
     /** closed (default): well-formed researchAcceptance is not treated as Hub-accepted. shape is refused in production. */
