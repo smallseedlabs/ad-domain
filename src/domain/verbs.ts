@@ -47,7 +47,9 @@ const createArgsSchema = z
     objective: z.enum(['OUTCOME_TRAFFIC', 'OUTCOME_AWARENESS', 'OUTCOME_ENGAGEMENT', 'OUTCOME_LEADS', 'OUTCOME_SALES']).optional(),
     optimizationGoal: z.enum(['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'IMPRESSIONS', 'REACH', 'OFFSITE_CONVERSIONS']).optional(),
     billingEvent: z.enum(['IMPRESSIONS', 'LINK_CLICKS']).optional(),
-    ctaType: z.enum(['LEARN_MORE', 'SIGN_UP', 'SHOP_NOW', 'GET_QUOTE', 'DOWNLOAD']).optional(),
+    ctaType: z
+      .enum(['LEARN_MORE', 'WATCH_NOW', 'VIEW_MORE', 'SIGN_UP', 'SHOP_NOW', 'GET_QUOTE', 'DOWNLOAD', 'SUBSCRIBE', 'APPLY_NOW'])
+      .optional(),
     expectedVersion: z.number().int().positive().optional(),
     providerAccountId: z.string().min(1).max(128).optional(),
     providerProfileId: z.string().regex(REDDIT_PROFILE_ID, 'providerProfileId must be a Reddit profile id').optional(),
@@ -91,7 +93,7 @@ export interface ParsedAdsArgs {
   objective?: 'OUTCOME_TRAFFIC' | 'OUTCOME_AWARENESS' | 'OUTCOME_ENGAGEMENT' | 'OUTCOME_LEADS' | 'OUTCOME_SALES';
   optimizationGoal?: 'LINK_CLICKS' | 'LANDING_PAGE_VIEWS' | 'IMPRESSIONS' | 'REACH' | 'OFFSITE_CONVERSIONS';
   billingEvent?: 'IMPRESSIONS' | 'LINK_CLICKS';
-  ctaType?: 'LEARN_MORE' | 'SIGN_UP' | 'SHOP_NOW' | 'GET_QUOTE' | 'DOWNLOAD';
+  ctaType?: 'LEARN_MORE' | 'WATCH_NOW' | 'VIEW_MORE' | 'SIGN_UP' | 'SHOP_NOW' | 'GET_QUOTE' | 'DOWNLOAD' | 'SUBSCRIBE' | 'APPLY_NOW';
   probaCampaignId?: string;
   expectedVersion?: number;
   providerAccountId?: string;

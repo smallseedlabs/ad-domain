@@ -56,6 +56,29 @@ export const adsCreativeSchema = z.union([imageCreativeSchema, textCreativeSchem
 
 export type AdsCreative = z.infer<typeof adsCreativeSchema>;
 
+const CTA_FROM_ENUM: Record<string, (typeof REDDIT_CALL_TO_ACTION)[number]> = {
+  APPLY_NOW: 'Apply Now',
+  CONTACT_US: 'Contact Us',
+  DOWNLOAD: 'Download',
+  GET_QUOTE: 'Get a Quote',
+  GET_A_QUOTE: 'Get a Quote',
+  LEARN_MORE: 'Learn More',
+  ORDER_NOW: 'Order Now',
+  PLAY_NOW: 'Play Now',
+  SHOP_NOW: 'Shop Now',
+  SIGN_UP: 'Sign Up',
+  VIEW_MORE: 'View More',
+  WATCH_NOW: 'Watch Now',
+  BOOK_NOW: 'Book Now',
+  SUBSCRIBE: 'Subscribe',
+};
+
+function normalizeCallToAction(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return CTA_FROM_ENUM[trimmed.toUpperCase()] ?? trimmed;
+}
+
 export function parseAdsCreative(raw: unknown): AdsCreative {
   if (raw && typeof raw === 'object' && 'type' in raw) {
     const type = (raw as { type?: unknown }).type;
@@ -65,7 +88,11 @@ export function parseAdsCreative(raw: unknown): AdsCreative {
       );
     }
   }
-  const parsed = adsCreativeSchema.safeParse(raw);
+  const normalized =
+    raw && typeof raw === 'object' && !Array.isArray(raw) && 'callToAction' in raw && (raw as { callToAction?: unknown }).callToAction !== undefined
+      ? { ...(raw as Record<string, unknown>), callToAction: normalizeCallToAction((raw as { callToAction?: unknown }).callToAction) }
+      : raw;
+  const parsed = adsCreativeSchema.safeParse(normalized);
   if (!parsed.success) {
     throw new RequestValidationError(parsed.error.issues[0]?.message ?? 'invalid creative');
   }
