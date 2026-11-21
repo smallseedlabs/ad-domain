@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryAuditPublisher } from '../audit/publisher.js';
 import { ServiceTokenAuth } from '../auth/service-token.js';
 import { SystemClock } from '../ports/clock.js';
+import { FakeProvider } from '../providers/fake.js';
 import { UnconfiguredProvider } from '../providers/unconfigured.js';
 import { MemoryStore } from '../store/memory.js';
 import {
@@ -18,7 +19,7 @@ import { createTestSigner, mintGatewayToken } from '../testing/token-signer.js';
 import { buildApp } from './app.js';
 import { createLogger } from '../logger.js';
 
-async function harness() {
+async function harness(provider: import('../providers/port.js').ProviderAdapter = new UnconfiguredProvider()) {
   const signer = await createTestSigner();
   const store = new MemoryStore();
   const audit = new MemoryAuditPublisher();
@@ -33,7 +34,7 @@ async function harness() {
     clock: new SystemClock(),
     logger: createLogger('silent'),
     store,
-    provider: new UnconfiguredProvider(),
+    provider,
   });
   return { app, signer, store, audit };
 }
@@ -175,5 +176,50 @@ describe('HTTP contract [fake-store] [unit]', () => {
       },
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  it('H1-05: POST /v1/kill-switch pauses all active workspace campaigns idempotently and audits', async () => {
+    const { app, signer, store } = await harness(new FakeProvider());
+    await store.withTransaction(async (tx) => {
+      for (const id of ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']) {
+        await tx.insertCampaign({
+          workspaceId: FIXTURE_WORKSPACE,
+          probaCampaignId: id,
+          userId: FIXTURE_USER_ID,
+          name: `Live ${id.slice(0, 4)}`,
+          landingPageUrl: 'https://example.com',
+          dailyBudget: 10,
+          currency: 'USD',
+          platform: 'reddit',
+          status: 'active',
+          version: 1,
+          provider: 'reddit',
+          providerAccountId: 'act_1',
+          providerCampaignId: `cmp_${id.slice(0, 4)}`,
+        });
+      }
+    });
+
+    const token = await mintGatewayToken(signer);
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/kill-switch',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': 'ks-1' },
+      payload: { workspaceId: FIXTURE_WORKSPACE, userId: FIXTURE_USER_ID },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ ok: true, workspaceId: FIXTURE_WORKSPACE, paused: 2, failed: 0 });
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/kill-switch',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': 'ks-2' },
+      payload: { workspaceId: FIXTURE_WORKSPACE, userId: FIXTURE_USER_ID },
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual({ ok: true, workspaceId: FIXTURE_WORKSPACE, paused: 0, failed: 0 });
+    expect(store.outbox.some((e) => e.action === 'control.emergency_stopped')).toBe(true);
+    await app.close();
   });
 });

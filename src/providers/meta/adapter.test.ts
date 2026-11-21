@@ -17,6 +17,7 @@ function createCommand(overrides: Partial<ProviderCommand> = {}): ProviderComman
       dailyBudget: 15,
       currency: 'USD',
       platform: 'meta',
+      targeting: { geolocations: ['US'] },
       creative: {
         type: 'IMAGE',
         headline: 'Automate your growth',
@@ -82,6 +83,7 @@ describe('MetaAdsAdapter', () => {
           dailyBudget: 20,
           currency: 'USD',
           platform: 'meta',
+          targeting: { geolocations: ['US'] },
           creative: {
             type: 'IMAGE',
             headline: 'Watch Proba',
@@ -169,6 +171,7 @@ describe('MetaAdsAdapter', () => {
           dailyBudget: 10,
           currency: 'GBP',
           platform: 'meta',
+          targeting: { geolocations: ['GB'] },
           creative: { type: 'TEXT', headline: 'Hi', body: 'Body', textFormat: 'PLAIN_TEXT' },
         },
       })
@@ -176,5 +179,80 @@ describe('MetaAdsAdapter', () => {
     expect(result).toMatchObject({ kind: 'refused', code: 'provider_refused' });
     expect(http.calls[6]!.url).toContain('/meta_cmp_orphan');
     expect(JSON.parse(http.calls[6]!.body ?? '{}')).toEqual({ status: 'DELETED' });
+  });
+
+  it('H0-05: launches Meta campaign/adset/ad PAUSED, supports lifetime_budget + end_time, and rejects missing geo or budget', async () => {
+    const adapter = new MetaAdsAdapter({ accessToken: 'tok', adAccountId: 'act_123' }, new ScriptedHttpTransport([
+      { status: 200, body: { id: 'act_123', account_status: 1 } },
+      { status: 200, body: { data: [{ id: 'page_1', name: 'SmallSeed' }] } },
+    ]));
+    const missingGeo = await adapter.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'No Geo',
+          landingPageUrl: 'https://smallseedlabs.co.uk/',
+          dailyBudget: 15,
+          currency: 'USD',
+          platform: 'meta',
+          creative: { type: 'TEXT', headline: 'Hi', body: 'Body', textFormat: 'PLAIN_TEXT' },
+        },
+      })
+    );
+    expect(missingGeo).toMatchObject({ kind: 'refused', code: 'missing_targeting' });
+
+    const adapterNoBudget = new MetaAdsAdapter({ accessToken: 'tok', adAccountId: 'act_123' }, new ScriptedHttpTransport([
+      { status: 200, body: { id: 'act_123', account_status: 1 } },
+      { status: 200, body: { data: [{ id: 'page_1', name: 'SmallSeed' }] } },
+    ]));
+    const missingBudget = await adapterNoBudget.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'No Budget',
+          landingPageUrl: 'https://smallseedlabs.co.uk/',
+          dailyBudget: 0,
+          currency: 'USD',
+          platform: 'meta',
+          targeting: { geolocations: ['US'] },
+          creative: { type: 'TEXT', headline: 'Hi', body: 'Body', textFormat: 'PLAIN_TEXT' },
+        },
+      })
+    );
+    expect(missingBudget).toMatchObject({ kind: 'refused', code: 'missing_budget' });
+
+    const http = new ScriptedHttpTransport([
+      { status: 200, body: { id: 'act_123', account_status: 1 } },
+      { status: 200, body: { data: [{ id: 'page_1', name: 'SmallSeed' }] } },
+      { status: 200, body: { id: 'meta_cmp_paused' } },
+      { status: 200, body: { id: 'meta_set_paused' } },
+      { status: 200, body: { id: 'meta_cr_paused' } },
+      { status: 200, body: { id: 'meta_ad_paused' } },
+    ]);
+    const adapterPaused = new MetaAdsAdapter({ accessToken: 'tok', adAccountId: 'act_123' }, http);
+    const ok = await adapterPaused.mutate(
+      createCommand({
+        args: {
+          verb: 'ads.create_campaign',
+          name: 'Lifetime Paused',
+          landingPageUrl: 'https://smallseedlabs.co.uk/',
+          dailyBudget: 15,
+          lifetimeBudget: 150,
+          currency: 'USD',
+          platform: 'meta',
+          targeting: { geolocations: ['GB'] },
+          schedule: { endTime: '2026-12-01T00:00:00Z' },
+          creative: { type: 'TEXT', headline: 'Hi', body: 'Body', textFormat: 'PLAIN_TEXT' },
+        } as never,
+      })
+    );
+    expect(ok.kind).toBe('success');
+    expect(JSON.parse(http.calls[2]!.body ?? '{}').status).toBe('PAUSED');
+    const adSetBody = JSON.parse(http.calls[3]!.body ?? '{}');
+    expect(adSetBody.status).toBe('PAUSED');
+    expect(adSetBody.lifetime_budget).toBe(15000);
+    expect(adSetBody.end_time).toBe('2026-12-01T00:00:00Z');
+    expect(adSetBody.targeting).toEqual({ geo_locations: { countries: ['GB'] } });
+    expect(JSON.parse(http.calls[5]!.body ?? '{}').status).toBe('PAUSED');
   });
 });

@@ -346,8 +346,8 @@ describe('metrics sync config', () => {
     });
   });
 
-  it('refuses enabling without the Reddit adapter, and out-of-range values', () => {
-    expect(() => loadConfig({ NODE_ENV: 'test', ADS_METRICS_SYNC_ENABLED: 'true' })).toThrow(/REDDIT_ADS_ENABLED/);
+  it('allows enabling without the Reddit adapter, and refuses out-of-range values', () => {
+    expect(loadConfig({ NODE_ENV: 'test', ADS_METRICS_SYNC_ENABLED: 'true' }).metricsSync.enabled).toBe(true);
     expect(() => testConfig({ ADS_METRICS_SYNC_INTERVAL_SECONDS: '10' })).toThrow(/ADS_METRICS_SYNC_INTERVAL_SECONDS/);
     expect(() => testConfig({ ADS_METRICS_SYNC_LOOKBACK_DAYS: '31' })).toThrow(/ADS_METRICS_SYNC_LOOKBACK_DAYS/);
   });

@@ -40,6 +40,8 @@ const createArgsSchema = z
     name: z.string().min(1).max(200),
     landingPageUrl: z.string().min(1).max(2048),
     dailyBudget: z.number().finite().positive(),
+    lifetimeBudget: z.number().finite().positive().optional(),
+    approvalToken: z.string().min(16).max(256).optional(),
     currency: z.string().length(3),
     platform: z.enum(AD_PLATFORMS),
     bidStrategy: z.enum(['LOWEST_COST_WITHOUT_CAP', 'LOWEST_COST_WITH_BID_CAP', 'COST_CAP']).optional(),
@@ -91,6 +93,8 @@ export interface ParsedAdsArgs {
   bidStrategy?: 'LOWEST_COST_WITHOUT_CAP' | 'LOWEST_COST_WITH_BID_CAP' | 'COST_CAP';
   bidAmount?: number;
   objective?: 'OUTCOME_TRAFFIC' | 'OUTCOME_AWARENESS' | 'OUTCOME_ENGAGEMENT' | 'OUTCOME_LEADS' | 'OUTCOME_SALES';
+  lifetimeBudget?: number;
+  approvalToken?: string;
   optimizationGoal?: 'LINK_CLICKS' | 'LANDING_PAGE_VIEWS' | 'IMPRESSIONS' | 'REACH' | 'OFFSITE_CONVERSIONS';
   billingEvent?: 'IMPRESSIONS' | 'LINK_CLICKS';
   ctaType?: 'LEARN_MORE' | 'WATCH_NOW' | 'VIEW_MORE' | 'SIGN_UP' | 'SHOP_NOW' | 'GET_QUOTE' | 'DOWNLOAD' | 'SUBSCRIBE' | 'APPLY_NOW';
@@ -134,6 +138,8 @@ export function parseVerbArgs(verb: string, raw: Record<string, unknown>): Parse
       name: parsed.data.name,
       landingPageUrl: assertLandingPageUrl(parsed.data.landingPageUrl),
       dailyBudget: parsed.data.dailyBudget,
+      lifetimeBudget: parsed.data.lifetimeBudget,
+      approvalToken: parsed.data.approvalToken,
       currency: parsed.data.currency.toUpperCase(),
       platform: parsed.data.platform,
       bidStrategy: parsed.data.bidStrategy,
