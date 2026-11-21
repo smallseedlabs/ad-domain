@@ -13,18 +13,13 @@ export function toRedditStructuredPostData(
     const destination: Record<string, unknown> = {
       type: 'URL',
       url: landingPageUrl,
-      call_to_action: creative.callToAction ?? 'LEARN_MORE',
     };
-    const body = creative.body
-      ? creative.body.includes(landingPageUrl)
-        ? creative.body
-        : `${creative.body.trimEnd()}\n\n${landingPageUrl}`
-      : undefined;
+    if (creative.callToAction) destination.call_to_action = creative.callToAction;
     return {
       creative: {
         type: 'IMAGE',
         headline: creative.headline,
-        ...(body ? { body } : {}),
+        ...(creative.body ? { body: creative.body } : {}),
         image: { media: { type: 'URL', url: creative.mediaUrl } },
         destination,
       },
