@@ -36,3 +36,20 @@ export function assertLandingPageUrl(value: unknown): string {
   }
   return raw;
 }
+
+/**
+ * Appends Proba attribution UTM tags while preserving the operator's exact origin,
+ * path, fragment, and existing query parameters.
+ */
+export function appendUtmParams(
+  landingPageUrl: string,
+  utm: { platform: string; goalId: string; cellId: string }
+): string {
+  const safe = assertLandingPageUrl(landingPageUrl);
+  const url = new URL(safe);
+  url.searchParams.set('utm_source', utm.platform);
+  url.searchParams.set('utm_medium', 'paid_social');
+  url.searchParams.set('utm_campaign', utm.goalId);
+  url.searchParams.set('utm_content', utm.cellId);
+  return url.toString();
+}
