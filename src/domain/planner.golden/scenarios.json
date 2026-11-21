@@ -1,0 +1,165 @@
+[
+  {
+    "name": "1. £20 below minimum -> refuse",
+    "input": {
+      "totalBudget": 20,
+      "currency": "GBP",
+      "platforms": ["reddit"],
+      "geolocations": ["GB"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": false, "code": "budget_below_minimum" }
+  },
+  {
+    "name": "2. £30 -> 1 cell",
+    "input": {
+      "totalBudget": 30,
+      "currency": "GBP",
+      "platforms": ["reddit"],
+      "geolocations": ["GB"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "cells": 1, "objective": "OUTCOME_TRAFFIC" }
+  },
+  {
+    "name": "3. £100 -> 2 cells",
+    "input": {
+      "totalBudget": 100,
+      "currency": "GBP",
+      "platforms": ["reddit"],
+      "geolocations": ["GB"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "cells": 2, "objective": "OUTCOME_TRAFFIC" }
+  },
+  {
+    "name": "4. £300 -> 4 cells",
+    "input": {
+      "totalBudget": 300,
+      "currency": "GBP",
+      "platforms": ["reddit"],
+      "geolocations": ["GB"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 200, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "cells": 4, "objective": "OUTCOME_TRAFFIC" }
+  },
+  {
+    "name": "5. no pixel with leads intent -> falls back to traffic",
+    "input": {
+      "totalBudget": 100,
+      "currency": "USD",
+      "platforms": ["reddit"],
+      "geolocations": ["US"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "goalIntent": "leads",
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "objective": "OUTCOME_TRAFFIC", "optimizationGoal": "LINK_CLICKS", "minClamps": 1 }
+  },
+  {
+    "name": "6. verified pixel with leads intent -> OUTCOME_LEADS / OFFSITE_CONVERSIONS",
+    "input": {
+      "totalBudget": 150,
+      "currency": "USD",
+      "platforms": ["meta"],
+      "geolocations": ["US"],
+      "hasPixel": true,
+      "pixelVerified": true,
+      "goalIntent": "leads",
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "objective": "OUTCOME_LEADS", "optimizationGoal": "OFFSITE_CONVERSIONS" }
+  },
+  {
+    "name": "7. purchase < $100/day -> upper-funnel fallback",
+    "input": {
+      "totalBudget": 200,
+      "currency": "USD",
+      "durationDays": 7,
+      "platforms": ["meta"],
+      "geolocations": ["US"],
+      "hasPixel": true,
+      "pixelVerified": true,
+      "goalIntent": "sales",
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "objective": "OUTCOME_TRAFFIC", "optimizationGoal": "LANDING_PAGE_VIEWS", "minClamps": 1 }
+  },
+  {
+    "name": "8. video creative preserved",
+    "input": {
+      "totalBudget": 120,
+      "currency": "USD",
+      "platforms": ["meta"],
+      "geolocations": ["US"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "creativeFormat": "VIDEO",
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "creativeFormat": "VIDEO", "cells": 2 }
+  },
+  {
+    "name": "9. 2 platforms allowed at >= 100",
+    "input": {
+      "totalBudget": 150,
+      "currency": "GBP",
+      "platforms": ["reddit", "meta"],
+      "geolocations": ["GB"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "platformCount": 2, "cells": 2 }
+  },
+  {
+    "name": "10. brain asks above cap -> clamped",
+    "input": {
+      "totalBudget": 500,
+      "currency": "USD",
+      "requestedDailyBudget": 150,
+      "platforms": ["reddit"],
+      "geolocations": ["US"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 50, "maxLifetimeBudget": 300 }
+    },
+    "expected": { "ok": true, "totalBudget": 300, "dailyBudget": 50, "minClamps": 2 }
+  },
+  {
+    "name": "11. brain asks fewer cells -> honoured",
+    "input": {
+      "totalBudget": 300,
+      "currency": "USD",
+      "requestedCells": 2,
+      "platforms": ["reddit"],
+      "geolocations": ["US"],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": true, "cells": 2 }
+  },
+  {
+    "name": "12. geo missing -> refuse",
+    "input": {
+      "totalBudget": 100,
+      "currency": "USD",
+      "platforms": ["reddit"],
+      "geolocations": [],
+      "hasPixel": false,
+      "pixelVerified": false,
+      "caps": { "maxDailyBudget": 100, "maxLifetimeBudget": 1000 }
+    },
+    "expected": { "ok": false, "code": "missing_targeting" }
+  }
+]
