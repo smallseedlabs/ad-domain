@@ -200,10 +200,38 @@ export class MetaAdsAdapter implements ProviderAdapter {
       }
     }
 
+    const extendedArgs = args as typeof args & { lifetimeBudget?: number; approvalToken?: string };
+    const hasDailyBudget = typeof args.dailyBudget === 'number' && args.dailyBudget > 0;
+    const hasLifetimeBudget =
+      typeof extendedArgs.lifetimeBudget === 'number' && extendedArgs.lifetimeBudget > 0;
+    if (!hasDailyBudget && !hasLifetimeBudget) {
+      return {
+        kind: 'refused',
+        code: 'missing_budget',
+        message: 'dailyBudget or lifetimeBudget is required for Meta campaign launch; no default budget is applied.',
+      };
+    }
+
+    const countries = (args.targeting?.geolocations ?? [])
+      .map((g) => g.trim().toUpperCase())
+      .filter((g) => /^[A-Z]{2}$/.test(g));
+    if (countries.length === 0) {
+      return {
+        kind: 'refused',
+        code: 'missing_targeting',
+        message: 'targeting.geolocations with at least one ISO-2 country code is required for Meta campaign launch; no default geo targeting is applied.',
+      };
+    }
+
+    const launchStatus =
+      process.env.AUTO_ACTIVATE_ON_LAUNCH === 'true' && Boolean(extendedArgs.approvalToken)
+        ? 'ACTIVE'
+        : 'PAUSED';
+
     const campRes = await this.post(`${this.accountId}/campaigns`, {
       name: args.name,
       objective: args.objective ?? 'OUTCOME_TRAFFIC',
-      status: 'ACTIVE',
+      status: launchStatus,
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
     });
@@ -213,15 +241,19 @@ export class MetaAdsAdapter implements ProviderAdapter {
       return { kind: 'refused', code: 'provider_refused', message: this.errMsg(campRes.body, campRes.status) };
     }
 
-    const dailyBudgetDollars = typeof args.dailyBudget === 'number' && args.dailyBudget > 0 ? args.dailyBudget : 10;
     const bidStrategy = args.bidStrategy ?? 'LOWEST_COST_WITHOUT_CAP';
-    const countries = (args.targeting?.geolocations ?? [])
-      .map((g) => g.trim().toUpperCase())
-      .filter((g) => /^[A-Z]{2}$/.test(g));
+    const budgetFields = hasLifetimeBudget
+      ? {
+          lifetime_budget: Math.round((extendedArgs.lifetimeBudget as number) * 100),
+          ...(args.schedule?.endTime ? { end_time: args.schedule.endTime } : {}),
+        }
+      : {
+          daily_budget: Math.round((args.dailyBudget as number) * 100),
+        };
     const adSetRes = await this.post(`${this.accountId}/adsets`, {
       name: `${args.name} Ad Set`,
       campaign_id: campaignId,
-      daily_budget: Math.round(dailyBudgetDollars * 100),
+      ...budgetFields,
       billing_event: args.billingEvent ?? 'IMPRESSIONS',
       optimization_goal: args.optimizationGoal ?? 'LINK_CLICKS',
       bid_strategy: bidStrategy,
@@ -229,8 +261,8 @@ export class MetaAdsAdapter implements ProviderAdapter {
         ? { bid_amount: Math.round(args.bidAmount * 100) }
         : {}),
       ...(pageName ? { dsa_beneficiary: pageName, dsa_payor: pageName } : {}),
-      targeting: { geo_locations: { countries: countries.length > 0 ? countries : ['US', 'GB'] } },
-      status: 'ACTIVE',
+      targeting: { geo_locations: { countries } },
+      status: launchStatus,
     });
     if (adSetRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta ad set create timed out' };
     const adSetId = (adSetRes.body as { id?: string } | null)?.id;
@@ -276,7 +308,7 @@ export class MetaAdsAdapter implements ProviderAdapter {
       name: `${args.name} Ad`,
       adset_id: adSetId,
       creative: { creative_id: creativeId },
-      status: 'ACTIVE',
+      status: launchStatus,
     });
     if (adRes.kind === 'timeout') return { kind: 'ambiguous', code: 'provider_timeout', message: 'Meta ad create timed out' };
     const adId = (adRes.body as { id?: string } | null)?.id;
