@@ -200,10 +200,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
     );
   }
 
+  const maxDailyBudget = envOptionalNumber(env, 'ADS_MAX_DAILY_BUDGET');
+  const maxMonthlySpend = envOptionalNumber(env, 'ADS_MAX_MONTHLY_SPEND');
+
   if (nodeEnv === 'production') {
     if (!databaseUrl) throw new ConfigError('DATABASE_URL or DATABASE_URL_FILE is required when NODE_ENV=production');
     if (!gatewayPublicKeyFile) throw new ConfigError('GATEWAY_SERVICE_PUBLIC_KEY_FILE is required when NODE_ENV=production');
     if (auditKind === 'redis' && !redisUrl) throw new ConfigError('REDIS_URL or REDIS_URL_FILE is required when AUDIT_PUBLISHER=redis');
+    if (maxDailyBudget === null || maxDailyBudget <= 0) {
+      throw new ConfigError('ADS_MAX_DAILY_BUDGET (> 0) is required when NODE_ENV=production');
+    }
+    if (maxMonthlySpend === null || maxMonthlySpend <= 0) {
+      throw new ConfigError('ADS_MAX_MONTHLY_SPEND (> 0) is required when NODE_ENV=production');
+    }
   }
 
   if (env.INGRESS_PUBLIC?.trim() === 'true') {
@@ -219,9 +228,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
 
   const reddit = loadRedditConfig(env, nodeEnv);
   const metricsSyncEnabled = envBool(env, 'ADS_METRICS_SYNC_ENABLED', false);
-  if (metricsSyncEnabled && !reddit.enabled) {
-    throw new ConfigError('ADS_METRICS_SYNC_ENABLED=true needs the Reddit adapter (REDDIT_ADS_ENABLED=true); nothing else can be synced');
-  }
 
   return {
     env: nodeEnv,
@@ -256,7 +262,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AdsServiceConf
     },
     ads: {
       preflightFreshnessMs: envInt(env, 'ADS_PREFLIGHT_FRESHNESS_MS', 15_000, 1_000, 300_000),
-      maxDailyBudget: envOptionalNumber(env, 'ADS_MAX_DAILY_BUDGET'),
+      maxDailyBudget,
+      maxMonthlySpend,
       maxDailyBudgetCurrency,
       allowTestFakes,
       researchAcceptanceMode,

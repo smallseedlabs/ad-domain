@@ -19,13 +19,6 @@ import { jobPostId, jobStatus, toRedditStructuredPostData } from './structured-p
 import { redditSameOrigin, toRedditHourUtc } from './time.js';
 import { resolveRedditObjective } from '../../domain/objectives.js';
 
-const SCAFFOLD_MAPPING = {
-  launchKind: 'campaign_ad_group_scaffold' as const,
-  deliverableAd: false,
-  clickUrlPushed: false,
-  missingEntities: ['ad', 'creative', 'click_url'] as const,
-};
-
 const DELIVERABLE_MAPPING = {
   launchKind: 'deliverable_ad' as const,
   deliverableAd: true,
@@ -402,14 +395,22 @@ export class RedditAdsAdapter implements ProviderAdapter {
     }
 
     const extArgs = command.args as typeof command.args & { conversionSignalVerified?: boolean };
+    const launchStatus =
+      process.env.AUTO_ACTIVATE_ON_LAUNCH === 'true' && Boolean(command.args.approvalToken)
+        ? 'ACTIVE'
+        : 'PAUSED';
+
     const created = await this.client.createCampaign(this.reddit.adAccountId, {
       name: command.args.name,
-      configured_status: 'ACTIVE',
+      configured_status: launchStatus,
       objective: resolveRedditObjective({
         objective: command.args.objective,
         conversionSignalVerified: extArgs.conversionSignalVerified,
       }),
       funding_instrument_id: servable.id,
+      ...(typeof command.args.lifetimeBudget === 'number'
+        ? { spend_cap: toMicros(command.args.lifetimeBudget) }
+        : {}),
     });
     if (created.kind !== 'ok') {
       return httpKindToOutcome(created.kind, created.message) ?? { kind: 'refused', code: 'provider_refused', message: created.message };
@@ -432,13 +433,15 @@ export class RedditAdsAdapter implements ProviderAdapter {
       const targeting = toRedditTargeting(command.args.targeting);
       const scheduleFields = toRedditScheduleFields(command.args.schedule);
       const startTime = scheduleFields.start_time ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const lifetimeBudget = command.args.lifetimeBudget;
+      const hasLifetimeBudget = typeof lifetimeBudget === 'number';
       const group = await this.client.createAdGroup(this.reddit.adAccountId, {
         type: 'MANUAL',
         name: `${command.args.name ?? 'ad-group'}`.slice(0, 200),
         campaign_id: campaignId,
-        configured_status: 'ACTIVE',
-        goal_type: 'DAILY_SPEND',
-        goal_value: toMicros(command.args.dailyBudget),
+        configured_status: launchStatus,
+        goal_type: hasLifetimeBudget ? 'LIFETIME_SPEND' : 'DAILY_SPEND',
+        goal_value: toMicros(hasLifetimeBudget ? lifetimeBudget : command.args.dailyBudget),
         bid_type: 'CPC',
         bid_strategy: 'BIDLESS',
         bid_value: null,
@@ -456,41 +459,23 @@ export class RedditAdsAdapter implements ProviderAdapter {
           message: `Reddit campaign ${campaignId} may exist; ad group create outcome is uncertain: ${group.message}`,
         };
       } else {
-        console.warn('[reddit] createAdGroup refused:', group.message, { campaignId, hasTargeting: Boolean(targeting) });
-        if (targeting && process.env.NODE_ENV !== 'test') {
-          const fallbackGroup = await this.client.createAdGroup(this.reddit.adAccountId, {
-            type: 'MANUAL',
-            name: `${command.args.name ?? 'ad-group'}`.slice(0, 200),
-            campaign_id: campaignId,
-            configured_status: 'ACTIVE',
-            goal_type: 'DAILY_SPEND',
-            goal_value: toMicros(command.args.dailyBudget),
-            bid_type: 'CPC',
-            bid_strategy: 'BIDLESS',
-            bid_value: null,
-            conversion_pixel_id: pixelId,
-            ...scheduleFields,
-            start_time: startTime,
-          });
-          if (fallbackGroup.kind === 'ok') {
-            adGroupId = idOf(fallbackGroup.data);
-          } else {
-            console.warn('[reddit] createAdGroup fallback also refused:', fallbackGroup.message);
+        await this.client.updateCampaign(campaignId, { configured_status: 'PAUSED' }).catch(() => undefined);
+        return (
+          httpKindToOutcome(group.kind, group.message) ?? {
+            kind: 'refused',
+            code: 'ad_group_create_failed',
+            message: `Reddit ad group create refused: ${group.message}. Campaign ${campaignId} was paused.`,
           }
-        }
+        );
       }
     }
 
     if (!adGroupId) {
+      await this.client.updateCampaign(campaignId, { configured_status: 'PAUSED' }).catch(() => undefined);
       return {
-        kind: 'success',
-        mapping: {
-          provider: 'reddit',
-          providerCampaignId: campaignId,
-          providerAccountId: this.reddit.adAccountId,
-          ...SCAFFOLD_MAPPING,
-          missingEntities: ['ad_group', 'ad', 'creative', 'click_url'],
-        },
+        kind: 'refused',
+        code: 'ad_group_create_failed',
+        message: `Reddit ad group create did not return an ad group id; campaign ${campaignId} was paused.`,
       };
     }
 
@@ -502,7 +487,7 @@ export class RedditAdsAdapter implements ProviderAdapter {
       name: command.args.name,
       post_id: createdPostId,
       ...(isTextPost ? {} : { click_url: landingPageUrl }),
-      configured_status: 'ACTIVE',
+      configured_status: launchStatus,
     });
     if (ad.kind !== 'ok') {
       if (ad.kind === 'ambiguous' || ad.kind === 'timeout') {
@@ -512,17 +497,14 @@ export class RedditAdsAdapter implements ProviderAdapter {
           message: `Reddit campaign ${campaignId} and ad group ${adGroupId} may exist; ad create outcome is uncertain: ${ad.message}`,
         };
       }
-      return {
-        kind: 'success',
-        mapping: {
-          provider: 'reddit',
-          providerCampaignId: campaignId,
-          providerAdGroupId: adGroupId,
-          providerAccountId: this.reddit.adAccountId,
-          ...SCAFFOLD_MAPPING,
-          missingEntities: ['ad', 'click_url'],
-        },
-      };
+      await this.client.updateCampaign(campaignId, { configured_status: 'PAUSED' }).catch(() => undefined);
+      return (
+        httpKindToOutcome(ad.kind, ad.message) ?? {
+          kind: 'refused',
+          code: 'ad_create_failed',
+          message: `Reddit ad create refused: ${ad.message}. Campaign ${campaignId} was paused.`,
+        }
+      );
     }
     const adId = idOf(ad.data);
     if (!adId) {

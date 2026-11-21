@@ -346,9 +346,51 @@ describe('metrics sync config', () => {
     });
   });
 
-  it('refuses enabling without the Reddit adapter, and out-of-range values', () => {
-    expect(() => loadConfig({ NODE_ENV: 'test', ADS_METRICS_SYNC_ENABLED: 'true' })).toThrow(/REDDIT_ADS_ENABLED/);
+  it('allows enabling without the Reddit adapter, and refuses out-of-range values', () => {
+    expect(loadConfig({ NODE_ENV: 'test', ADS_METRICS_SYNC_ENABLED: 'true' }).metricsSync.enabled).toBe(true);
     expect(() => testConfig({ ADS_METRICS_SYNC_INTERVAL_SECONDS: '10' })).toThrow(/ADS_METRICS_SYNC_INTERVAL_SECONDS/);
     expect(() => testConfig({ ADS_METRICS_SYNC_LOOKBACK_DAYS: '31' })).toThrow(/ADS_METRICS_SYNC_LOOKBACK_DAYS/);
+  });
+
+  it('H1-03: uses 15 min interval when a campaign is in learning, hourly otherwise, and preserves null metrics in snapshots', async () => {
+    const store = await storeWith(campaign(C1, { inLearning: true }));
+    const provider = new StubMetricsProvider((q) => ({
+      kind: 'ok',
+      observations: [
+        {
+          provider: 'reddit',
+          providerAccountId: q.providerAccountId,
+          providerCampaignId: q.providerCampaignId,
+          periodStart: q.periodStart,
+          periodEnd: q.periodEnd,
+          granularity: q.granularity,
+          timezone: q.timezone,
+          currency: 'GBP',
+          fetchedAt: NOW.toISOString(),
+          revision: 0,
+          metrics: { impressions: 250, clicks: 8, spend: 4.5 },
+        },
+      ],
+      quarantined: [],
+      pages: 1,
+    }));
+
+    const deps = { config: syncConfig(), store, provider, clock: new FixedClock(NOW) };
+    const report = await runMetricsSyncOnce(deps);
+    expect(report.hasLearningCampaign).toBe(true);
+    expect(report.counts.ingested).toBe(1);
+
+    const scheduler = new MetricsSyncScheduler(deps);
+    expect(scheduler.nextIntervalMs(report)).toBe(15 * 60 * 1000);
+    expect(scheduler.nextIntervalMs({ ...report, hasLearningCampaign: false })).toBe(60 * 60 * 1000);
+
+    expect(store.metricsSnapshots).toHaveLength(1);
+    expect(store.metricsSnapshots[0]).toMatchObject({
+      probaCampaignId: C1,
+      impressions: 250,
+      clicks: 8,
+      spend: 4.5,
+      conversions: null,
+    });
   });
 });

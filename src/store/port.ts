@@ -1,5 +1,10 @@
 import type { AuditEvent } from '../protocol.js';
 import type { AdPlatform, AdsDomainResult } from '../types/http.js';
+import type {
+  GoalLedgerCaps,
+  LedgerCheckResult,
+  LedgerReservationInput,
+} from '../domain/ledger.js';
 
 export type CommandStatus = 'pending' | 'in_flight' | 'succeeded' | 'failed' | 'ambiguous';
 export type CampaignStatus = 'draft' | 'active' | 'paused' | 'failed' | 'ambiguous';
@@ -34,6 +39,7 @@ export interface CampaignRecord {
   providerAdGroupId?: string;
   providerAdId?: string;
   reconcile?: Record<string, unknown> | null;
+  inLearning?: boolean;
 }
 
 export interface ProviderAccountRecord {
@@ -81,10 +87,42 @@ export interface AdsTx {
   listAccounts(workspaceId: string, platform: AdPlatform): Promise<ProviderAccountRecord[]>;
   upsertAccount(row: ProviderAccountRecord): Promise<void>;
   enqueueAudit(event: AuditEvent): Promise<void>;
+  setGoalBudgetCaps(
+    workspaceId: string,
+    goalId: string,
+    caps: Pick<GoalLedgerCaps, 'goalLifetimeCapUsd' | 'goalDailyCapUsd' | 'maxLivePerGoal'>
+  ): Promise<void>;
+  getGoalBudgetCaps(
+    workspaceId: string,
+    goalId: string
+  ): Promise<Pick<GoalLedgerCaps, 'goalLifetimeCapUsd' | 'goalDailyCapUsd' | 'maxLivePerGoal'> | undefined>;
+  reserveGoalBudget(
+    input: LedgerReservationInput & { caps: GoalLedgerCaps; isNewLiveCampaign: boolean }
+  ): Promise<LedgerCheckResult>;
+  releaseGoalBudget(input: {
+    workspaceId: string;
+    goalId: string;
+    campaignId: string;
+    idempotencyKey: string;
+    nowIso: string;
+  }): Promise<void>;
 }
 
 /** Campaign statuses the metrics sync reads reports for (read-only; never drafts, failed or ambiguous rows). */
 export const METRICS_SYNC_STATUSES: readonly CampaignStatus[] = ['active', 'paused'];
+
+export interface MetricsSnapshotRecord {
+  workspaceId: string;
+  probaCampaignId: string;
+  platform: AdPlatform;
+  periodStart: string;
+  periodEnd: string;
+  impressions: number | null;
+  clicks: number | null;
+  spend: number | null;
+  conversions: number | null;
+  recordedAt: string;
+}
 
 export interface AdsStore {
   withTransaction<T>(fn: (tx: AdsTx) => Promise<T>): Promise<T>;
@@ -93,6 +131,8 @@ export interface AdsStore {
    * across workspaces (the scheduler then scopes each fetch to the row's own workspace and user).
    */
   listMetricsSyncTargets(platform: AdPlatform, limit: number): Promise<CampaignRecord[]>;
+  recordMetricsSnapshot?(snapshot: MetricsSnapshotRecord): Promise<void>;
+  listActiveWorkspaceCampaigns?(workspaceId: string): Promise<CampaignRecord[]>;
   ping(): Promise<void>;
   close(): Promise<void>;
   claimOutbox?(limit: number, leaseMs: number): Promise<Array<{ id: string; event: AuditEvent }>>;

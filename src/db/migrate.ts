@@ -12,7 +12,10 @@ export interface Migration {
   file: string;
 }
 
-export const migrations: Migration[] = [{ id: 1, name: 'ads_foundation', file: '001_ads_foundation.sql' }];
+export const migrations: Migration[] = [
+  { id: 1, name: 'ads_foundation', file: '001_ads_foundation.sql' },
+  { id: 2, name: 'budget_ledger', file: '002_budget_ledger.sql' },
+];
 
 export async function runMigrations(pool: Pool, schema = 'ads'): Promise<{ applied: number[] }> {
   if (!/^[a-z_][a-z0-9_]*$/i.test(schema)) throw new Error('invalid database schema name');
