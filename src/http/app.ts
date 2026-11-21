@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import {
   AmbiguousOutcomeError,
   IdentityRejectedError,
@@ -203,6 +205,81 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       deps.logger.error({ err: err instanceof Error ? err.name : 'error', traceId: body.traceId }, 'metrics fetch failed');
       return reply.status(500).send(errorBody('internal', 'internal error'));
     }
+  });
+
+  const killSwitchBodySchema = z.object({
+    workspaceId: z.string().min(1).max(128),
+    userId: z.string().min(1).max(128).optional(),
+    traceId: z.string().uuid().optional(),
+    reason: z.string().min(1).max(500).optional(),
+  });
+
+  app.post('/v1/kill-switch', async (request, reply) => {
+    const callerOrReply = await authenticate(deps, request, reply);
+    if (!('issuer' in callerOrReply)) return callerOrReply;
+    const caller = callerOrReply;
+    if (!limiter.allow(`${caller.issuer}\n${caller.subject}`)) {
+      return reply.status(429).send(errorBody('rate_limited', 'caller exceeded the request rate limit'));
+    }
+    const parsed = killSwitchBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send(errorBody('invalid_request', parsed.error.issues[0]?.message ?? 'invalid request'));
+    }
+    const body = parsed.data;
+    if (caller.workspaceId && caller.workspaceId !== body.workspaceId) {
+      return deny(deps, request, reply, 403, 'workspace_scope', 'caller workspaceId does not match request', body.workspaceId);
+    }
+    const idempotencyKey = header(request, 'idempotency-key') ?? randomUUID();
+    const traceId = body.traceId ?? randomUUID();
+
+    const active = deps.store.listActiveWorkspaceCampaigns
+      ? await deps.store.listActiveWorkspaceCampaigns(body.workspaceId)
+      : [];
+
+    let paused = 0;
+    let failed = 0;
+    for (const campaign of active) {
+      const result = await executeCampaignAction(
+        deps,
+        {
+          traceId,
+          workspaceId: body.workspaceId,
+          userId: body.userId ?? campaign.userId,
+          ...(campaign.goalId ? { goalId: campaign.goalId } : {}),
+          verb: 'ads.pause_campaign',
+          initiatedBy: 'user',
+          args: { probaCampaignId: campaign.probaCampaignId },
+        },
+        caller,
+        `kill-switch:${idempotencyKey}:${campaign.probaCampaignId}`
+      );
+      if (result.ok) {
+        paused += 1;
+      } else {
+        failed += 1;
+      }
+    }
+
+    await deps.store.withTransaction((tx) =>
+      tx.enqueueAudit(
+        adsAuditEvent({
+          action: 'control.emergency_stopped',
+          outcome: failed === 0 ? 'success' : paused > 0 ? 'partial' : 'failure',
+          traceId,
+          workspaceId: body.workspaceId,
+          userId: body.userId,
+          clock: deps.clock,
+          details: { paused, failed, reason: body.reason ?? 'kill_switch' },
+        })
+      )
+    );
+
+    return reply.status(200).send({
+      ok: failed === 0,
+      workspaceId: body.workspaceId,
+      paused,
+      failed,
+    });
   });
 
   return app;

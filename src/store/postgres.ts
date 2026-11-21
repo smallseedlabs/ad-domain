@@ -230,6 +230,16 @@ export class PostgresStore implements AdsStore {
     return result.rows.map(asCampaign);
   }
 
+  async listActiveWorkspaceCampaigns(workspaceId: string): Promise<CampaignRecord[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM ads.campaigns
+        WHERE workspace_id = $1 AND status = 'active'
+        ORDER BY proba_campaign_id`,
+      [workspaceId]
+    );
+    return result.rows.map(asCampaign);
+  }
+
   async ping(): Promise<void> {
     await this.pool.query('SELECT 1');
   }

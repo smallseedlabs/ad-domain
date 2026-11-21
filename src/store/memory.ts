@@ -118,6 +118,13 @@ export class MemoryStore implements AdsStore {
       .map((c) => ({ ...c }));
   }
 
+  async listActiveWorkspaceCampaigns(workspaceId: string): Promise<CampaignRecord[]> {
+    return [...this.campaigns.values()]
+      .filter((c) => c.workspaceId === workspaceId && c.status === 'active')
+      .sort((a, b) => a.probaCampaignId.localeCompare(b.probaCampaignId))
+      .map((c) => ({ ...c }));
+  }
+
   async ping(): Promise<void> {
     return;
   }

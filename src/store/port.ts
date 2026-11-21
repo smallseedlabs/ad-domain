@@ -93,6 +93,7 @@ export interface AdsStore {
    * across workspaces (the scheduler then scopes each fetch to the row's own workspace and user).
    */
   listMetricsSyncTargets(platform: AdPlatform, limit: number): Promise<CampaignRecord[]>;
+  listActiveWorkspaceCampaigns?(workspaceId: string): Promise<CampaignRecord[]>;
   ping(): Promise<void>;
   close(): Promise<void>;
   claimOutbox?(limit: number, leaseMs: number): Promise<Array<{ id: string; event: AuditEvent }>>;
