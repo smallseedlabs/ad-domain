@@ -102,13 +102,16 @@ describe('H1-04 spend watchdog', () => {
         return {
           kind: 'verified',
           eligible: true,
-          mode: 'funding_instrument',
-          checkedAt: '2026-11-21T20:00:00.000Z',
-          source: 'live',
+          mode: 'billing_eligibility',
+          asOf: '2026-11-21T20:00:00.000Z',
+          source: 'ads_domain',
         };
       },
-      async fetchMetrics() {
-        return { kind: 'ok', observations: [], quarantined: [], pages: 1 };
+      async permissionState() {
+        return { state: 'ready' as const };
+      },
+      async fetchCampaignMetrics() {
+        return { kind: 'ok' as const, observations: [], quarantined: [], pages: 1 };
       },
     };
 

@@ -24,8 +24,10 @@ function fakeClock() {
 const CALLER: VerifiedCaller = {
   subject: 'gateway',
   issuer: 'proba-gateway',
-  scopes: ['ads.write', 'ads.spend_increase'],
   workspaceId: FIXTURE_WORKSPACE,
+  jti: 'jti-1',
+  keyId: 'k1',
+  expiresAt: new Date('2099-01-01T00:00:00Z'),
 };
 
 function makeProvider(options: { refuseCreate?: boolean; delayMs?: number } = {}): ProviderAdapter {
@@ -61,13 +63,16 @@ function makeProvider(options: { refuseCreate?: boolean; delayMs?: number } = {}
       return {
         kind: 'verified',
         eligible: true,
-        mode: 'funding_instrument',
-        checkedAt: '2026-11-21T20:00:00.000Z',
-        source: 'live',
+        mode: 'billing_eligibility',
+        asOf: '2026-11-21T20:00:00.000Z',
+        source: 'ads_domain',
       };
     },
-    async fetchMetrics() {
-      return { kind: 'ok', observations: [], quarantined: [], pages: 1 };
+    async permissionState() {
+      return { state: 'ready' as const };
+    },
+    async fetchCampaignMetrics() {
+      return { kind: 'ok' as const, observations: [], quarantined: [], pages: 1 };
     },
   };
 }
@@ -120,7 +125,7 @@ describe('H1-02 transactional budget ledger', () => {
       store,
       provider: makeProvider(),
       clock: fakeClock(),
-      researchAcceptance: { verify: () => ({ ok: true as const }) },
+      researchAcceptance: { verify: () => ({ ok: true as const, mode: 'fixture' as const }) },
     };
 
     // 1. Create 1st campaign ($30/day) -> succeeds
@@ -227,7 +232,7 @@ describe('H1-02 transactional budget ledger', () => {
       store,
       provider: makeProvider({ delayMs: 20 }),
       clock: fakeClock(),
-      researchAcceptance: { verify: () => ({ ok: true as const }) },
+      researchAcceptance: { verify: () => ({ ok: true as const, mode: 'fixture' as const }) },
     };
 
     const [a, b] = await Promise.all([

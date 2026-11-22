@@ -358,6 +358,10 @@ describe('metrics sync config', () => {
       kind: 'ok',
       observations: [
         {
+          version: 1 as const,
+          platform: 'reddit' as const,
+          accountId: q.providerAccountId,
+          campaignId: C1,
           provider: 'reddit',
           providerAccountId: q.providerAccountId,
           providerCampaignId: q.providerCampaignId,
@@ -368,7 +372,7 @@ describe('metrics sync config', () => {
           currency: 'GBP',
           fetchedAt: NOW.toISOString(),
           revision: 0,
-          metrics: { impressions: 250, clicks: 8, spend: 4.5 },
+          metrics: { impressions: 250, clicks: 8, spend: 4.5 } as never,
         },
       ],
       quarantined: [],
